@@ -1,6 +1,8 @@
 {
  "$schema": "https://inlang.com/schema/inlang-message-format",
  "common_action_cancel": "Anuluj",
+ "common_action_save": "Zapisz",
+ "common_action_saving": "Zapisywanie…",
  "common_action_close": "Zamknij",
  "common_action_enable": "Włącz {subject}",
  "common_action_disable": "Wyłącz {subject}",

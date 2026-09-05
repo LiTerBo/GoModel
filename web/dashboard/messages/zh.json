@@ -1,6 +1,8 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "common_action_cancel": "取消",
+  "common_action_save": "保存",
+  "common_action_saving": "正在保存…",
   "common_action_close": "关闭",
   "common_action_enable": "启用{subject}",
   "common_action_disable": "禁用{subject}",
