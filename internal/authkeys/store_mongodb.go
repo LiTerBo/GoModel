@@ -172,6 +172,17 @@ func (s *MongoDBStore) Deactivate(ctx context.Context, id string, now time.Time)
 	return nil
 }
 
+func (s *MongoDBStore) Delete(ctx context.Context, id string) error {
+	result, err := s.collection.DeleteOne(ctx, mongoAuthKeyIDFilter{ID: normalizeID(id)})
+	if err != nil {
+		return fmt.Errorf("delete auth key: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *MongoDBStore) Close() error {
 	return nil
 }

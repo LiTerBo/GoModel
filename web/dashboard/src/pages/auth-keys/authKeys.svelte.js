@@ -422,6 +422,47 @@ class AuthKeysStore {
       this.deactivatingID = "";
     }
   }
+
+  async deleteKey(key) {
+    if (!key || key.active) {
+      return;
+    }
+    if (!window.confirm(m.api_keys_delete_confirm({ name: key.name }))) {
+      return;
+    }
+
+    try {
+      const outcome = await sendAdminMutation(
+        "/admin/auth-keys/" + encodeURIComponent(key.id),
+        "DELETE",
+        undefined,
+        {
+          label: "delete API key",
+          errorFallback: m.api_keys_delete_failed(),
+          unavailableMessage: m.api_keys_feature_unavailable(),
+        },
+      );
+      if (outcome.status === "stale") {
+        return;
+      }
+      if (outcome.status === "unavailable") {
+        this.available = false;
+        flash.error(outcome.error);
+        return;
+      }
+      if (outcome.status === "error") {
+        if (outcome.result && outcome.result.status !== 401) {
+          console.error("Failed to delete auth key:", outcome.result.status, outcome.error);
+        }
+        flash.error(outcome.error);
+        return;
+      }
+      flash.success(m.api_keys_delete_success({ name: key.name }));
+      void this.fetchKeys();
+    } finally {
+      // noop
+    }
+  }
 }
 
 export const authKeysStore = new AuthKeysStore();

@@ -93,6 +93,15 @@ func (s *testStore) Deactivate(_ context.Context, id string, now time.Time) erro
 	return nil
 }
 
+func (s *testStore) Delete(_ context.Context, id string) error {
+	key, ok := s.keys[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(s.keys, key.ID)
+	return nil
+}
+
 func (s *testStore) Close() error { return nil }
 
 func TestServiceCreateAuthenticateAndDeactivate(t *testing.T) {
@@ -140,6 +149,43 @@ func TestServiceCreateAuthenticateAndDeactivate(t *testing.T) {
 	}
 	if views[0].Active {
 		t.Fatal("ListViews()[0].Active = true, want false after deactivation")
+	}
+}
+
+func TestServiceCreateAndDelete(t *testing.T) {
+	service, err := NewService(newTestStore())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	issued, err := service.Create(context.Background(), CreateInput{Name: "to-delete"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if issued == nil {
+		t.Fatal("Create() = nil, want issued key")
+	}
+
+	if err := service.Delete(context.Background(), issued.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	views := service.ListViews()
+	if len(views) != 0 {
+		t.Fatalf("ListViews() len = %d, want 0 after delete", len(views))
+	}
+	if _, err := service.Authenticate(context.Background(), issued.Value); err != ErrInvalidToken {
+		t.Fatalf("Authenticate() after delete error = %v, want %v", err, ErrInvalidToken)
+	}
+}
+
+func TestServiceDeleteReturnsNotFound(t *testing.T) {
+	service, err := NewService(newTestStore())
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	if err := service.Delete(context.Background(), "nonexistent"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete() error = %v, want %v", err, ErrNotFound)
 	}
 }
 

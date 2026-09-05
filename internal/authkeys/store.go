@@ -41,6 +41,7 @@ type Store interface {
 	UpdateAllowedModels(ctx context.Context, id string, allowedModels []string, now time.Time) error
 	UpdateDashboardAccess(ctx context.Context, id string, allowed bool, now time.Time) error
 	Deactivate(ctx context.Context, id string, now time.Time) error
+	Delete(ctx context.Context, id string) error
 	Close() error
 }
 

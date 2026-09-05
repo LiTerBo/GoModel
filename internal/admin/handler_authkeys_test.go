@@ -88,6 +88,14 @@ func (s *authKeyTestStore) Deactivate(_ context.Context, id string, now time.Tim
 	return nil
 }
 
+func (s *authKeyTestStore) Delete(_ context.Context, id string) error {
+	if _, ok := s.keys[id]; !ok {
+		return authkeys.ErrNotFound
+	}
+	delete(s.keys, id)
+	return nil
+}
+
 func (s *authKeyTestStore) Close() error { return nil }
 
 func newAuthKeyHandler(t *testing.T, store authkeys.Store) *Handler {
@@ -146,6 +154,17 @@ func TestAuthKeyEndpointsReturn503WhenServiceUnavailable(t *testing.T) {
 	}
 	if labelsRec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("UpdateAuthKeyLabels() status = %d, want 503", labelsRec.Code)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/auth-keys/test-key", nil)
+	deleteRec := httptest.NewRecorder()
+	deleteCtx := e.NewContext(deleteReq, deleteRec)
+	deleteCtx.SetPathValues(echo.PathValues{{Name: "id", Value: "test-key"}})
+	if err := h.DeleteAuthKey(deleteCtx); err != nil {
+		t.Fatalf("DeleteAuthKey() error = %v", err)
+	}
+	if deleteRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("DeleteAuthKey() status = %d, want 503", deleteRec.Code)
 	}
 }
 
@@ -222,6 +241,74 @@ func TestCreateListAndDeactivateAuthKey(t *testing.T) {
 	}
 	if len(views) != 1 || views[0].Active {
 		t.Fatalf("list response after deactivate = %#v, want one inactive key", views)
+	}
+}
+
+func TestDeleteAuthKeyRemovesKey(t *testing.T) {
+	h := newAuthKeyHandler(t, newAuthKeyTestStore())
+	e := echo.New()
+
+	// Create two keys so we can verify only the deleted one is removed.
+	create := func(name string) string {
+		req := httptest.NewRequest(http.MethodPost, "/admin/auth-keys", bytes.NewBufferString(`{"name":"`+name+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		if err := h.CreateAuthKey(e.NewContext(req, rec)); err != nil {
+			t.Fatalf("CreateAuthKey() error = %v", err)
+		}
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("CreateAuthKey() status = %d, want 201", rec.Code)
+		}
+		var issued authkeys.IssuedKey
+		if err := json.Unmarshal(rec.Body.Bytes(), &issued); err != nil {
+			t.Fatalf("unmarshal create response: %v", err)
+		}
+		return issued.ID
+	}
+
+	delID := create("to-delete")
+	keepID := create("to-keep")
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/auth-keys/"+delID, nil)
+	deleteRec := httptest.NewRecorder()
+	deleteCtx := e.NewContext(deleteReq, deleteRec)
+	deleteCtx.SetPathValues(echo.PathValues{{Name: "id", Value: delID}})
+	if err := h.DeleteAuthKey(deleteCtx); err != nil {
+		t.Fatalf("DeleteAuthKey() error = %v", err)
+	}
+	if deleteRec.Code != http.StatusNoContent {
+		t.Fatalf("DeleteAuthKey() status = %d, want 204", deleteRec.Code)
+	}
+
+	listCtx, listRec := newHandlerContext("/admin/auth-keys")
+	if err := h.ListAuthKeys(listCtx); err != nil {
+		t.Fatalf("ListAuthKeys() error = %v", err)
+	}
+	var views []authkeys.View
+	if err := json.Unmarshal(listRec.Body.Bytes(), &views); err != nil {
+		t.Fatalf("unmarshal list response: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("list response after delete len = %d, want 1", len(views))
+	}
+	if views[0].ID != keepID {
+		t.Fatalf("remaining key id = %q, want %q (deleted key should be gone)", views[0].ID, keepID)
+	}
+}
+
+func TestDeleteAuthKeyMissingReturnsNotFound(t *testing.T) {
+	h := newAuthKeyHandler(t, newAuthKeyTestStore())
+	e := echo.New()
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/auth-keys/missing", nil)
+	deleteRec := httptest.NewRecorder()
+	deleteCtx := e.NewContext(deleteReq, deleteRec)
+	deleteCtx.SetPathValues(echo.PathValues{{Name: "id", Value: "missing"}})
+	if err := h.DeleteAuthKey(deleteCtx); err != nil {
+		t.Fatalf("DeleteAuthKey() error = %v", err)
+	}
+	if deleteRec.Code != http.StatusNotFound {
+		t.Fatalf("DeleteAuthKey() status = %d, want 404", deleteRec.Code)
 	}
 }
 

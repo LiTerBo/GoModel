@@ -224,6 +224,23 @@ func (h *Handler) DeactivateAuthKey(c *echo.Context) error {
 	return deactivateByID(c, unavailableErr, "auth key", authkeys.ErrNotFound, "auth key not found: ", deactivate, authKeyWriteError)
 }
 
+// DeleteAuthKey handles DELETE /admin/auth-keys/:id
+func (h *Handler) DeleteAuthKey(c *echo.Context) error {
+	var unavailableErr error
+	var deleteFn func(context.Context, string) error
+	if h.authKeys == nil {
+		unavailableErr = featureUnavailableError("auth keys feature is unavailable")
+	} else {
+		deleteFn = func(ctx context.Context, id string) error {
+			if err := h.requireAuthKeyInScope(c, id); err != nil {
+				return err
+			}
+			return h.authKeys.Delete(ctx, id)
+		}
+	}
+	return deactivateByID(c, unavailableErr, "auth key", authkeys.ErrNotFound, "auth key not found: ", deleteFn, authKeyWriteError)
+}
+
 // requireAuthKeyInScope hides keys bound outside the caller's scope behind
 // the same not-found error an unknown id produces. Global scopes skip the
 // lookup so a missing key still surfaces from the update itself.

@@ -172,6 +172,17 @@ func (s *SQLStore) Deactivate(ctx context.Context, id string, now time.Time) err
 	return nil
 }
 
+func (s *SQLStore) Delete(ctx context.Context, id string) error {
+	affected, err := s.db.Exec(ctx, `DELETE FROM auth_keys WHERE id = ?`, normalizeID(id))
+	if err != nil {
+		return fmt.Errorf("delete auth key: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLStore) Close() error {
 	return nil
 }

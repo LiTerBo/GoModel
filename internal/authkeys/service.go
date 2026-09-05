@@ -328,6 +328,25 @@ func (s *Service) Deactivate(ctx context.Context, id string) error {
 	return nil
 }
 
+// Delete permanently removes a managed auth key from storage and updates the
+// in-memory snapshot. Returns ErrNotFound if the key does not exist.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if s == nil {
+		return fmt.Errorf("auth key service is required")
+	}
+	id = normalizeID(id)
+	if id == "" {
+		return newValidationError("auth key id is required", nil)
+	}
+
+	if err := s.store.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete auth key: %w", err)
+	}
+	s.applyDelete(id)
+	s.refreshBestEffort(ctx, "delete")
+	return nil
+}
+
 // Authenticate validates a presented bearer token against the in-memory snapshot
 // and returns the matched auth key metadata on success.
 func (s *Service) Authenticate(_ context.Context, token string) (AuthenticationResult, error) {
@@ -487,6 +506,32 @@ func (s *Service) applyDeactivate(id string, now time.Time) {
 	next.byID[id] = key
 	next.bySecretHash[key.SecretHash] = key
 	delete(next.activeByHash, key.SecretHash)
+	s.snapshot = next
+}
+
+func (s *Service) applyDelete(id string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next := cloneSnapshot(s.snapshot)
+	key, exists := next.byID[id]
+	if !exists {
+		s.snapshot = next
+		return
+	}
+	delete(next.bySecretHash, key.SecretHash)
+	delete(next.activeByHash, key.SecretHash)
+	delete(next.byID, id)
+	// Remove from order slice
+	for i, oid := range next.order {
+		if oid == id {
+			next.order = append(next.order[:i], next.order[i+1:]...)
+			break
+		}
+	}
 	s.snapshot = next
 }
 

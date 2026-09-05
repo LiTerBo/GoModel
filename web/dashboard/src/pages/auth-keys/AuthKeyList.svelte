@@ -7,7 +7,7 @@
   import { displayModelSelector } from "$lib/utils/modelSelectors.js";
   import { authKeyDeactivated, authKeyExpired, labelChipStyle } from "./authKeysLogic.js";
   import { authKeysStore as store } from "./authKeys.svelte.js";
-  import { Boxes, Info, Pencil, Power, ShieldCheck, ShieldOff, TriangleAlert } from "lucide";
+  import { Boxes, Info, Pencil, Power, ShieldCheck, ShieldOff, Trash2, TriangleAlert } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
 </script>
 
@@ -153,6 +153,13 @@
                     ? m.api_keys_deactivated_on({ date: formatTimestampUTC(key.deactivated_at) })
                     : m.api_keys_deactivated()}
                 >{m.api_keys_deactivated()}</span>
+                <TableActionButton
+                  label={m.api_keys_delete_action({ name: key.name })}
+                  class="table-action-btn-danger table-icon-btn"
+                  onclick={() => store.deleteKey(key)}
+                >
+                  <Icon icon={Trash2} class="table-icon-svg" />
+                </TableActionButton>
               {/if}
             </div>
           </td>
