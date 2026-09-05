@@ -28,10 +28,7 @@
       <InlineHelpSection copyId="providers-config-help-copy" label="model providers help">
         {#snippet title()}<h2>{m.providers_title()}</h2>{/snippet}
         {#snippet help()}
-          Configure LLM provider credentials here instead of setting API keys as
-          environment variables. Providers declared in config.yaml or env vars
-          are read-only (Config badge) and cannot be edited or deleted from the
-          dashboard. Keys are masked after saving.
+          {m.providers_help()}
         {/snippet}
       </InlineHelpSection>
     </div>
@@ -57,7 +54,7 @@
     <p class="form-error" role="alert" aria-live="assertive">{providersConfig.error}</p>
   {/if}
   {#if providersConfig.loading && !auth.needsAuth}
-    <LoadingState label="Loading providers..." />
+    <LoadingState label={m.providers_loading()} />
   {/if}
 
   {#if (providersConfig.rows.length > 0 || providersConfig.filter) && providersConfig.available && !auth.needsAuth}

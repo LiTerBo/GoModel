@@ -33,6 +33,7 @@
   import Icon from "$lib/components/atoms/Icon.svelte";
   import { auth } from "$lib/stores/auth.svelte.js";
   import { Save } from "lucide";
+  import * as m from "$lib/paraglide/messages.js";
 
   let {
     open = false,
@@ -103,7 +104,7 @@
       <div class="form-actions">
         {#if cancel}
           <button type="button" class="btn" onclick={() => onclose?.()}>
-            Cancel
+            {m.common_action_cancel()}
           </button>
         {/if}
         {#if extraActions}

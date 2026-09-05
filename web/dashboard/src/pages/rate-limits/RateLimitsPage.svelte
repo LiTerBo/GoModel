@@ -14,8 +14,7 @@
 
   const PAGE = "rate-limits";
 
-  const HELP_TEXT =
-    "Rate limits cap requests, tokens, and in-flight concurrency for a user path subtree, a provider, or a model. Consumer (user path) breaches return 429 with Retry-After and x-ratelimit-* headers; saturated providers and models are skipped by load balancing and failover while capacity exists elsewhere. Counters are per gateway instance and reset on restart; token limits need usage tracking.";
+  const HELP_TEXT = m.rate_limits_help();
 
   // Re-fetch when the page becomes active or the API key changes. The Models
   // page triggers its own fetch via rateLimits.fetchRateLimitsPage().
@@ -119,7 +118,7 @@
     </p>
   {/if}
   {#if rateLimits.rateLimitsLoading && !auth.authError}
-    <LoadingState label="Loading rate limits..." />
+    <LoadingState label={m.rate_limits_loading()} />
   {/if}
 
   {#if (rateLimits.rateLimits.length > 0 || rateLimits.rateLimitFilter) && rateLimits.rateLimitsAvailable && !auth.authError && !rateLimits.rateLimitFormOpen}
