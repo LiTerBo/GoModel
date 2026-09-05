@@ -4,6 +4,8 @@
   "common_action_save": "保存",
   "common_action_saving": "正在保存…",
   "common_action_remove": "移除",
+  "common_action_confirm": "确认",
+  "confirmation_type_to_confirm": "输入 {text} 以确认",
   "common_action_close": "关闭",
   "common_action_enable": "启用{subject}",
   "common_action_disable": "禁用{subject}",

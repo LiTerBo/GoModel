@@ -3,6 +3,7 @@
 // is responsible for closing the dialog when its action succeeds.
 
 import { TriangleAlert } from "lucide";
+import * as m from "$lib/paraglide/messages.js";
 
 function emptyState() {
   return {
@@ -13,7 +14,7 @@ function emptyState() {
     message: "",
     requiredText: "",
     value: "",
-    confirmLabel: "Confirm",
+    confirmLabel: m.common_action_confirm(),
     icon: TriangleAlert,
     dialogClass: "",
     loading: false,
@@ -53,14 +54,16 @@ class ConfirmDialogStore {
   }
 
   inputLabel() {
-    return (
-      "Type " + String(this.state.requiredText || "").trim() + " to confirm"
-    );
+    return m.confirmation_type_to_confirm({
+      text: String(this.state.requiredText || "").trim(),
+    });
   }
 
   async submit() {
     if (!this.ready()) {
-      this.error = this.inputLabel() + ".";
+      this.error = m.confirmation_type_to_confirm({
+        text: String(this.state.requiredText || "").trim(),
+      });
       return;
     }
     if (typeof this.state.onConfirm === "function") {
