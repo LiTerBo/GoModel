@@ -4,9 +4,10 @@
   // the auth-style dialogs pass "" to keep their larger X.
   import Icon from "./Icon.svelte";
   import { X } from "lucide";
+  import * as m from "$lib/paraglide/messages.js";
 
   let {
-    label = "Close",
+    label = m.common_action_close(),
     onclick,
     class: className = "",
     iconClass = "table-icon-svg",

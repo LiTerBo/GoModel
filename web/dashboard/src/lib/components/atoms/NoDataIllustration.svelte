@@ -2,7 +2,9 @@
   // The shared "no data" artwork: the GoModel hexagon mark over a ghosted bar
   // chart. `label` is baked into the drawing, so hide it when the surrounding
   // empty state already spells the message out in text.
-  let { label = "No data" } = $props();
+  import * as m from "$lib/paraglide/messages.js";
+
+  let { label = m.common_no_data() } = $props();
 </script>
 
 <svg

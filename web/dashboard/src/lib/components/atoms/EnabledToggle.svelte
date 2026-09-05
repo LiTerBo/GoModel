@@ -10,6 +10,8 @@
   //   restricted — the "enabled but user-path-scoped" amber state
   //   onclick    — toggle handler
   //   text       — visible caption override; defaults to Enabled/Disabled
+  import * as m from "$lib/paraglide/messages.js";
+
   let {
     enabled = false,
     label = "",
@@ -26,9 +28,11 @@
   class:enabled
   class:restricted
   {disabled}
-  aria-label={(enabled ? "Disable " : "Enable ") + label}
+  aria-label={(enabled
+    ? m.common_action_disable({ subject: label })
+    : m.common_action_enable({ subject: label }))}
   {onclick}
 >
   <span class="alias-toggle-track"><span class="alias-toggle-thumb"></span></span>
-  <span>{text ?? (enabled ? "Enabled" : "Disabled")}</span>
+  <span>{text ?? (enabled ? m.common_enabled() : m.common_disabled())}</span>
 </button>

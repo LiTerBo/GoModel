@@ -7,10 +7,12 @@
   // means the caller renders the copy somewhere else (e.g. another grid
   // cell): pair it with bind:open and give that copy element id={copyId}
   // so the aria wiring stays intact.
+  import * as m from "$lib/paraglide/messages.js";
+
   let {
     copyId,
     // aria-label reads "Show {label}" / "Hide {label}".
-    label = "help",
+    label = m.common_help_label(),
     text = "",
     open = $bindable(false),
     external = false,

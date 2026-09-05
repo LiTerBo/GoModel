@@ -91,7 +91,7 @@
           {/if}
         </div>
         <DialogCloseButton
-          label={"Close " + (ariaLabel || title).toLowerCase()}
+          label={m.common_action_close() + " " + (ariaLabel || title)}
           onclick={() => onclose?.()}
         />
       </div>

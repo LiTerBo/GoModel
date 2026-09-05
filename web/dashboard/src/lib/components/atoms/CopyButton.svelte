@@ -4,11 +4,12 @@
   // button works for page-local state and store-held state.
   import Icon from "$lib/components/atoms/Icon.svelte";
   import { CircleCheck, Copy } from "lucide";
+  import * as m from "$lib/paraglide/messages.js";
 
   let {
     state,
-    label = "Copy",
-    copiedLabel = "Copied",
+    label = m.common_copy(),
+    copiedLabel = m.common_copied(),
     // Left unset when the caller reports failures elsewhere (e.g. a form-error
     // line), so the label keeps reading "Copy".
     errorLabel = "",

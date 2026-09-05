@@ -2,7 +2,9 @@
   // Loading placeholder row (.loading-state markup with the CSS spinner).
   // Global modifier classes can override the default min-height by setting
   // --loading-state-min-height on the same element.
-  let { label = "Loading...", class: className = "" } = $props();
+  import * as m from "$lib/paraglide/messages.js";
+
+  let { label = m.common_loading(), class: className = "" } = $props();
 </script>
 
 <div class={["loading-state", className]} role="status" aria-live="polite">

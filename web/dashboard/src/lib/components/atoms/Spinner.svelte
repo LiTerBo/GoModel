@@ -1,6 +1,8 @@
 <script>
   // Inline loading spinner. size: px number; label: accessible text.
-  let { size = 16, label = "Loading", class: className = "" } = $props();
+  import * as m from "$lib/paraglide/messages.js";
+
+  let { size = 16, label = m.common_loading(), class: className = "" } = $props();
 </script>
 
 <span
