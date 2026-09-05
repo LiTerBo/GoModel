@@ -156,7 +156,7 @@ test("Paraglide compiles interpolation and locale-aware plurals", () => {
 
 test("the browser locale strategy persists overrides without changing routes", () => {
   assert.equal(baseLocale, "en");
-  assert.deepEqual(locales, ["en", "pl"]);
+  assert.deepEqual(locales, ["en", "pl", "zh"]);
   assert.deepEqual(strategy, [
     "custom-dashboard",
     "preferredLanguage",
