@@ -1183,6 +1183,7 @@
   "providers_identity_help": "The name is the stable identity used for routing and cannot change once created.",
   "providers_select_type": "Select a provider type…",
   "providers_type_help": "Determines which fields the gateway uses to build requests.",
+  "providers_type_openai_compatible_hint": "For any OpenAI-compatible endpoint (vLLM, SGLang, local inference servers, proprietary gateways). API key is optional; set a Base URL or use the default localhost:8000.",
   "providers_name_create_help": "Suggested from the selected type; used to route requests to this provider instance and editable before saving.",
   "providers_name_edit_help": "Immutable once created.",
   "providers_pick_type": "Pick a type to configure its credentials — each provider type asks for different settings.",

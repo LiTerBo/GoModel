@@ -1184,6 +1184,7 @@
   "providers_identity_help": "名称是用于路由的稳定标识，创建后不可更改。",
   "providers_select_type": "选择供应商类型…",
   "providers_type_help": "决定网关构建请求时使用哪些字段。",
+  "providers_type_openai_compatible_hint": "适用于任意 OpenAI 兼容 endpoint（vLLM、SGLang、本地推理服务器、私有网关）。API 密钥可选；设置 Base URL 或使用默认 localhost:8000。",
   "providers_name_create_help": "根据所选类型自动建议；用于将请求路由到此供应商实例，保存前可编辑。",
   "providers_name_edit_help": "创建后不可更改。",
   "providers_pick_type": "请选择一个类型以配置其凭据——每种供应商类型所需的设置各不相同。",

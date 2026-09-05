@@ -91,7 +91,11 @@
     {#if typeError}
       <small class="form-field-error" id="provider-credential-type-error" role="alert">{typeError}</small>
     {:else}
-      <small class="form-hint" id="provider-credential-type-hint">{m.providers_type_help()}</small>
+      {#if providersConfig.form.type === "openai-compatible"}
+        <small class="form-hint" id="provider-credential-type-hint">{m.providers_type_openai_compatible_hint()}</small>
+      {:else}
+        <small class="form-hint" id="provider-credential-type-hint">{m.providers_type_help()}</small>
+      {/if}
     {/if}
   </div>
 
