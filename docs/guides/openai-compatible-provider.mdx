@@ -1,0 +1,64 @@
+---
+title: OpenAI Compatible Provider
+description: Connect any OpenAI-compatible endpoint (vLLM, SGLang, local inference, proprietary gateways)
+---
+
+GoModel supports a **generic `openai-compatible` provider type** for any upstream that speaks the OpenAI-compatible API. Unlike the specific `openai` type (which targets api.openai.com), this type is intentionally generic and works with self-hosted, third-party, or custom endpoints.
+
+## When to use it
+
+Use `openai-compatible` when you need to connect to:
+
+- **Local inference servers**: vLLM, SGLang, llama.cpp, LocalAI, Ollama (though Ollama has its own type)
+- **Self-hosted gateways**: LiteLLM, Portkey, custom proxies
+- **Proprietary or internal endpoints**: Any service that implements the OpenAI `/v1/chat/completions` API
+- **Development/test servers**: Transient endpoints that don't warrant a dedicated provider type
+
+## Key differences from `openai`
+
+| Aspect | `openai` | `openai-compatible` |
+|--------|----------|---------------------|
+| Default base URL | `https://api.openai.com/v1` | `http://localhost:8000/v1` |
+| API key | Required | Optional |
+| Purpose | Official OpenAI API | Any OpenAI-compatible endpoint |
+| Header auth | Bearer token | Bearer token (default) |
+
+## Via Dashboard
+
+1. Navigate to **Providers** → **Add Provider**
+2. Select **Type**: `openai-compatible`
+3. Enter a **Name** (e.g. `my-vllm`)
+4. Set **Base URL** to your endpoint (e.g. `http://192.168.1.100:8000/v1`)
+5. **(Optional)** Enter an API key if your endpoint requires authentication
+6. **(Optional)** Add **Models** to advertise (e.g. `Qwen2.5-72B-Instruct, deepseek-v3`)
+7. Click **Save**
+
+## Via config.yaml
+
+```yaml
+providers:
+  my-local-vllm:
+    type: openai-compatible
+    base_url: http://localhost:8000/v1
+    # api_key: sk-...  (optional)
+    models:
+      - Qwen2.5-72B-Instruct
+      - deepseek-v3
+```
+
+## Capabilities
+
+| Feature | Supported |
+|---------|-----------|
+| `/v1/chat/completions` | ✅ |
+| `/v1/models` | ✅ (auto-discovered) |
+| `/v1/embeddings` | ✅ |
+| Responses API | ✅ (translated via chat) |
+| Audio endpoints | ❌ (use `openai` for official API) |
+| Files API | ❌ |
+
+## Troubleshooting
+
+- **Connection refused**: Verify the endpoint is running and reachable from the GoModel host
+- **401 Unauthorized**: Set the correct API key; for keyless endpoints, leave the field empty
+- **Model not found**: Add model IDs manually in the **Models** field, or ensure the endpoint correctly responds to `GET /v1/models`
