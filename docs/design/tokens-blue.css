@@ -1,0 +1,189 @@
+/* AUTO-GENERATED from DESIGN-BLUE.md — gomodel-blue 设计 token。
+   修改规范后运行 scripts/design_tokens.py 重新生成。 */
+
+:root {
+  --bg: #000000;
+  --surface: #272729;
+  --surface-hover: #2a2a2c;
+  --border: #333333;
+  --text: #ffffff;
+  --text-muted: #7a7a7a;
+  --accent: #0066cc;
+  --accent-hover: #0071e3;
+  --green: #34d399;
+  --red: #ef4444;
+  --orange: #f59e0b;
+  --blue: #2997ff;
+  --info: #2997ff;
+  --light-bg: #f5f5f7;
+  --light-surface: #ffffff;
+  --light-surface-hover: #fafafc;
+  --light-border: #e0e0e0;
+  --light-text: #1d1d1f;
+  --light-text-muted: #7a7a7a;
+  --light-accent: #0066cc;
+  --light-accent-hover: #0071e3;
+  --light-info: #0066cc;
+  --light-warning: #d97706;
+  --light-danger: #dc2626;
+  --token-input: #4a7fc7;
+  --token-output: #7aadf0;
+  --token-prompt: color-mix(in srgb, var(--info) 60%, transparent);
+  --token-local: color-mix(in srgb, var(--info) 20%, transparent);
+  --cache-meter-uncached: var(--token-input);
+  --cache-meter-local: var(--token-local);
+  --cache-meter-prompt: var(--token-prompt);
+  --cal-level-0-dark: #161b22;
+  --cal-level-0-light: #ebedf0;
+  --alias-row-valid-bg: color-mix(in srgb, var(--bg-surface-hover) 86%, #fff 14%);
+  --alias-row-valid-bg-hover: color-mix(in srgb, var(--bg-surface-hover) 72%, #fff 28%);
+  --sidebar-w: 240px;
+  --sidebar-collapsed: 60px;
+  --sidebar-header-h: 70px;
+  --nav-item-h: 40px;
+  --nav-item-padding: 8px 12px;
+  --nav-gap: 4px;
+  --footer-padding: 16px;
+  --icon-md: 18px;
+  --icon-sm: 14px;
+  --toolbar-icon: 16px;
+  --bp-mobile: 768px;
+  --bp-phone: 520px;
+  --content-max-w: 1336px;
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 250ms;
+  --sp-xxs: 2px;
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 16px;
+  --sp-xl: 20px;
+  --sp-2xl: 24px;
+  --sp-3xl: 32px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-full: 9999px;
+  --shadow-0: none;
+  --shadow-1: 1px solid var(--border);
+  --shadow-2: 0 2px 8px rgba(0,0,0,0.18);
+  --shadow-3: 0 10px 22px rgba(0,102,204,0.18);
+  --shadow-4: 0 10px 22px color-mix(in srgb, var(--danger) 20%, transparent);
+  --font-text-xs: 10px;
+  --font-text-sm: 12px;
+  --font-text-sm-13: 13px;
+  --font-text-base: 14px;
+  --font-text-base-500: 14px;
+  --font-text-lg: 18px;
+  --font-text-xl: 22px;
+  --font-text-xxl: 28px;
+  --font-caption: 12px;
+  --font-button: 13px;
+  --font-button-strong: 13px;
+  --font-uppercase-label: 12px;
+}
+
+/* ── 组件类（components 自动生成，仅基础 chrome）── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: var(--transition-normal);
+}
+.sidebar-header {
+  padding: 20px;
+  border: 1px solid var(--border);
+  font-size: 18px;
+}
+.btn {
+  padding: 6px 16px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+}
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  padding: 6px 16px;
+}
+.btn-danger {
+  background: var(--red);
+  color: #ffffff;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  padding: 6px 16px;
+}
+.btn-danger-outline {
+  border: 1px solid color-mix(in srgb, var(--red) 55%, var(--border));
+  background: transparent;
+  font-size: 13px;
+}
+.card {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  border-radius: var(--radius-md);
+  padding: var(--space-card);
+}
+.card-label {
+  font-size: 12px;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: 560px;
+  max-height: 80vh;
+}
+.input {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+}
+.badge {
+  font-size: 10px;
+  border-radius: var(--radius-lg);
+  padding: 2px 8px;
+  background: var(--accent);
+  color: #ffffff;
+}
+.provider-badge {
+  font-size: 12px;
+  border-radius: 12px;
+  padding: 2px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.status-badge {
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  padding: 2px 10px;
+}
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+}
+.chart-container {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-block);
+}
+.workflow-node {
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.alias-toggle {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
