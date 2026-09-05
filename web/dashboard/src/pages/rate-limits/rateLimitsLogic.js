@@ -153,11 +153,45 @@ export function rateLimitIsConcurrent(item) {
 }
 
 export function rateLimitPeriodLabel(item) {
+  // The backend sends an English machine label ("minute"/"hour"/"day"/
+  // "concurrent"/"custom"/"1234s"); map the named ones to localized messages
+  // and render custom windows as a plain seconds figure. Backend error
+  // messages stay English (AGENTS.md), but this field is display-only copy —
+  // the localized form lives in the frontend by design.
   const label = String((item && item.period_label) || "").trim();
-  if (label) {
+  switch (label) {
+    case "minute":
+      return m.rate_limits_per_minute();
+    case "hour":
+      return m.rate_limits_per_hour();
+    case "day":
+      return m.rate_limits_per_day();
+    case "concurrent":
+      return m.rate_limits_concurrent();
+  }
+  if (label && label !== "custom" && !/^\d+s$/.test(label)) {
     return label;
   }
-  return rateLimitPeriodFromSeconds(Number((item && item.period_seconds) || 0));
+  const seconds = Number((item && item.period_seconds) || 0);
+  if (label === "custom" || (label && /^\d+s$/.test(label)) || (seconds && seconds !== 60 && seconds !== 3600 && seconds !== 86400)) {
+    return m.rate_limits_custom_seconds() + " (" + seconds + "s)";
+  }
+  return rateLimitPeriodFromSeconds(seconds) === "concurrent"
+    ? m.rate_limits_concurrent()
+    : rateLimitPeriodLabelFromName(rateLimitPeriodFromSeconds(seconds));
+}
+
+function rateLimitPeriodLabelFromName(name) {
+  switch (name) {
+    case "minute":
+      return m.rate_limits_per_minute();
+    case "hour":
+      return m.rate_limits_per_hour();
+    case "day":
+      return m.rate_limits_per_day();
+    default:
+      return m.rate_limits_custom_seconds();
+  }
 }
 
 export function rateLimitSourceLabel(item) {

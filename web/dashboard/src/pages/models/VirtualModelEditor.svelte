@@ -257,7 +257,7 @@
         disabled={vm.vmDeleting || vm.vmSubmitting}
         onclick={() => vm.deleteVirtualModel()}
       >
-        Remove
+        {m.common_action_remove()}
       </button>
     {/if}
   {/snippet}
