@@ -7,6 +7,11 @@ This project is GoModel — a high-performance, lightweight AI gateway that rout
 - GoModel accepts requests generously, such as allowing `max_tokens` for any model, and adapts them to each provider’s specific requirements before forwarding them. For example, it translates `max_tokens` to `max_completion_tokens` for OpenAI reasoning models.
 - GoModel accepts provider responses liberally and returns them to the user in a conservative OpenAI-compatible format.
 
+**Backend error messages are permanently English.**
+
+- All backend-facing error text stays in English: `/v1/*` public API errors, `/admin/*` API errors, and server logs. Do not add a backend i18n package or locale-negotiated rendering (decided 2026-09-05).
+- Localization is a frontend responsibility: the backend provides structure (`type`, `code`, `param`), and the web dashboard renders localized sentences from those machine-readable fields, falling back to the English `message`.
+
 **Follow [The Twelve-Factor App](https://12factor.net/).**
 
 Keep files small and follow KISS principles.
