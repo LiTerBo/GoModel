@@ -31,7 +31,7 @@
         type="button"
         class="inline-help-toggle"
         class:is-open={open}
-        aria-label={(open ? "Hide " : "Show ") + label}
+        aria-label={(open ? m.common_action_collapse() : m.common_action_expand()) + " " + label}
         aria-expanded={open}
         aria-controls={copyId}
         onclick={() => (open = !open)}

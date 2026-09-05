@@ -25,7 +25,7 @@
 <div>
   <div class="page-header">
     <div>
-      <InlineHelpSection copyId="providers-config-help-copy" label="model providers help">
+      <InlineHelpSection copyId="providers-config-help-copy" label={m.providers_help_label()}>
         {#snippet title()}<h2>{m.providers_title()}</h2>{/snippet}
         {#snippet help()}
           {m.providers_help()}

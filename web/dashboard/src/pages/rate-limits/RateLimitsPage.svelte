@@ -88,7 +88,7 @@
 <div>
   <div class="page-header">
     <div>
-      <InlineHelpSection copyId="rate-limits-help-copy" label="rate limits help" text={HELP_TEXT}>
+      <InlineHelpSection copyId="rate-limits-help-copy" label={m.rate_limits_help_label()} text={HELP_TEXT}>
         {#snippet title()}<h2>{m.rate_limits_title()}</h2>{/snippet}
       </InlineHelpSection>
     </div>
@@ -137,7 +137,7 @@
   <RateLimitEditor />
 
   {#if (rateLimits.rateLimits.length > 0 || rateLimits.rateLimitFilter) && rateLimits.rateLimitsAvailable && !auth.authError}
-    <div class="rate-limit-tabs" role="tablist" aria-label="Rate limit scope">
+    <div class="rate-limit-tabs" role="tablist" aria-label={m.rate_limits_scope_tablist()}>
       {#each rateLimits.tabCounts() as tab (tab.scope)}
         <button
           type="button"

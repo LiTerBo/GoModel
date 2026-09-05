@@ -37,13 +37,13 @@
         </p>
       </div>
       <DialogCloseButton
-        label="Close rate limits inspector"
+        label={m.rate_limits_inspector_close()}
         onclick={() => rateLimits.closeRateLimitInspector()}
       />
     </div>
 
     {#if rateLimits.rateLimitsLoading}
-      <LoadingState label="Loading rate limits..." />
+      <LoadingState label={m.rate_limits_inspector_loading()} />
     {:else if !rateLimits.rateLimitsAvailable}
       <div class="alert alert-warning">{m.rate_limits_unavailable()}</div>
     {:else}
@@ -52,7 +52,7 @@
           <div class="inline-help-title-row">
             <h4 class="form-field-label">{section.title}</h4>
             <TableActionButton
-              label={"Add " + section.title.toLowerCase()}
+              label={m.rate_limits_add_for({ target: section.title })}
               class="budget-action-btn"
               onclick={() =>
                 rateLimits.openRateLimitFormFromInspector(
@@ -109,8 +109,8 @@
                           <span
                             class="budget-source"
                             title={rateLimits.rateLimitIsReadOnly(item)
-                              ? "Declared in configuration; read-only in the dashboard"
-                              : "Managed via dashboard or admin API"}
+                              ? m.rate_limits_config_read_only()
+                              : m.rate_limits_managed()}
                           >
                             {rateLimits.rateLimitSourceLabel(item)}
                           </span>
@@ -118,7 +118,7 @@
                         <div class="budget-row-actions">
                           {#if !rateLimits.rateLimitIsReadOnly(item)}
                             <TableActionButton
-                              label="Edit rate limit"
+                              label={m.rate_limits_inspector_edit()}
                               class="budget-action-btn"
                               onclick={() =>
                                 rateLimits.openRateLimitFormFromInspector(
@@ -149,7 +149,7 @@
         class="btn"
         onclick={() => rateLimits.closeRateLimitInspector()}
       >
-        Close
+        {m.common_action_close()}
       </button>
       {#if rateLimits.rateLimitsEnabled()}
         <button
@@ -160,7 +160,7 @@
             router.navigate("rate-limits");
           }}
         >
-          Open Rate Limits page
+          {m.rate_limits_inspector_open_page()}
         </button>
       {/if}
     </div>

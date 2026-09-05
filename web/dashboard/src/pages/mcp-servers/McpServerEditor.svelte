@@ -119,7 +119,7 @@
     <div class="vm-status-toggle">
       <EnabledToggle
         enabled={mcpServers.form.enabled}
-        label="MCP server"
+        label={m.mcp_enabled_toggle()}
         onclick={() => (mcpServers.form.enabled = !mcpServers.form.enabled)}
       />
     </div>
