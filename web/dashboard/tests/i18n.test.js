@@ -189,3 +189,85 @@ test("every English message is referenced by dashboard source", () => {
     );
   }
 });
+
+// --- Cross-catalog parity -------------------------------------------------
+//
+// Runtime falls back to English per message, so a translation catalog may be
+// temporarily incomplete without breaking the UI — but silent drift is how a
+// locale rots. These tests force every non-English catalog to keep its keyset
+// in lockstep with en.json (the sync rule is documented in
+// src/lib/i18n/README.md): same keys, same order, no empty values, and
+// placeholder parity for plain messages. Matcher messages (the array values)
+// are exempt from placeholder parity: locales legitimately prune plural
+// branches (zh keeps only "*"; pl keeps one/few/many/*).
+
+const placeholderPattern = /\{[^{}]+\}/g;
+
+function placeholdersOf(value) {
+  const text =
+    typeof value === "string"
+      ? value
+      : JSON.stringify(value, Object.keys(value?.[0]?.match ?? {}));
+  return (text.match(placeholderPattern) ?? []).sort();
+}
+
+function catalog(locale) {
+  const path = fileURLToPath(
+    new URL(`../messages/${locale}.json`, import.meta.url),
+  );
+  const { $schema, ...messages } = JSON.parse(readFileSync(path, "utf8"));
+  return messages;
+}
+
+for (const locale of locales.filter((tag) => tag !== baseLocale)) {
+  const translated = catalog(locale);
+
+  test(`${locale}.json covers every English message key`, () => {
+    const missing = Object.keys(englishMessages).filter(
+      (key) => !(key in translated),
+    );
+    const extra = Object.keys(translated).filter(
+      (key) => !(key in englishMessages),
+    );
+    assert.deepEqual(
+      { missing, extra },
+      { missing: [], extra: [] },
+      `${locale}.json keyset drifted from en.json; sync rule: new UI strings land in every locale together (src/lib/i18n/README.md)`,
+    );
+  });
+
+  test(`${locale}.json keeps the English key order`, () => {
+    assert.deepEqual(
+      Object.keys(translated),
+      Object.keys(englishMessages),
+      "catalog key order must follow en.json so diffs stay comparable",
+    );
+  });
+
+  test(`${locale}.json has no empty values`, () => {
+    for (const [key, value] of Object.entries(translated)) {
+      const empty =
+        typeof value === "string"
+          ? value.trim() === ""
+          : Array.isArray(value) && value.length === 0;
+      assert.ok(!empty, `${locale}.json: ${key} is empty`);
+    }
+  });
+
+  test(`${locale}.json preserves message placeholders`, () => {
+    for (const [key, english] of Object.entries(englishMessages)) {
+      if (Array.isArray(english)) continue; // matcher: locales prune branches
+      // Set semantics, not multiset: a translation may repeat a placeholder
+      // (natural rephrasing), but every English {input} must appear at least
+      // once or Paraglide renders a literal/empty hole at runtime.
+      const expected = new Set(placeholdersOf(english));
+      const actual = new Set(placeholdersOf(translated[key] ?? ""));
+      for (const placeholder of expected) {
+        assert.ok(
+          actual.has(placeholder),
+          `${locale}.json: ${key} is missing {${placeholder.replace(/[{}]/g, "")}} — keep {inputs} verbatim`,
+        );
+      }
+    }
+  });
+}
