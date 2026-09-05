@@ -213,3 +213,55 @@ func TestDefaultProviderFactoryRegistersAllProviderTypes(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultProviderFactoryOpenAICompatible verifies the openai-compatible
+// type can be created from the factory with the expected defaults.
+func TestDefaultProviderFactoryOpenAICompatible(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		apiKey  string
+	}{
+		{
+			name:    "default base URL, no API key",
+			baseURL: "",
+			apiKey:  "",
+		},
+		{
+			name:    "custom base URL with API key",
+			baseURL: "https://custom.example.com/v1",
+			apiKey:  "sk-my-key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			factory := defaultProviderFactory(&config.Config{})
+			provider, err := factory.Create(providers.ProviderConfig{
+				Type:    "openai-compatible",
+				APIKey:  tt.apiKey,
+				BaseURL: tt.baseURL,
+				Name:    "test-compatible",
+			})
+			if err != nil {
+				t.Fatalf("Create(openai-compatible) = unexpected error: %v", err)
+			}
+			if provider == nil {
+				t.Fatal("Create(openai-compatible) = nil provider")
+			}
+		})
+	}
+}
+
+// TestDefaultProviderFactoryOpenAICompatibleRejectsUnknownType verifies that
+// an unknown type still fails after the openai-compatible registration.
+func TestDefaultProviderFactoryOpenAICompatibleRejectsUnknownType(t *testing.T) {
+	factory := defaultProviderFactory(&config.Config{})
+	_, err := factory.Create(providers.ProviderConfig{
+		Type:   "openai-compatible-unknown",
+		APIKey: "sk-test",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown provider type, got nil")
+	}
+}
