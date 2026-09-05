@@ -231,7 +231,7 @@
   }
 
   .rate-limit-tab.scope-model {
-    --scope-hue: #68765c;
+    --scope-hue: #4a7fc7;
   }
 
   .rate-limit-tab:hover {
@@ -315,7 +315,7 @@
   }
 
   .rate-limit-group.scope-model {
-    --scope-hue: #68765c;
+    --scope-hue: #4a7fc7;
   }
 
   .rate-limit-group-header {

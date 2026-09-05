@@ -155,41 +155,38 @@
    .budget-bar-text-row-on-fill text, except custom which stays light and
    keeps its dark on-fill text override below). */
 .budget-bar-track-period-monthly {
-  background: color-mix(in srgb, #30302c 22%, var(--bg));
+  background: color-mix(in srgb, #3d5170 22%, var(--bg));
 }
 .budget-bar-fill-period-monthly {
-  background: #30302c;
+  background: #3d5170;
 }
 
 .budget-bar-track-period-weekly {
-  background: color-mix(in srgb, #68765c 22%, var(--bg));
+  background: color-mix(in srgb, #4a7fc7 22%, var(--bg));
 }
 .budget-bar-fill-period-weekly {
-  background: #68765c;
+  background: #4a7fc7;
 }
 
 .budget-bar-track-period-daily {
-  background: color-mix(in srgb, #b5652d 22%, var(--bg));
+  background: color-mix(in srgb, #2370c2 22%, var(--bg));
 }
 .budget-bar-fill-period-daily {
-  /* Darker than the #b5652d badge color: the badge only needs contrast
-     against its own text, but this fill sits under white on-fill text
-     and #b5652d falls short of 4.5:1. */
-  background: #a75a26;
+  background: #2370c2;
 }
 
 .budget-bar-track-period-hourly {
-  background: color-mix(in srgb, #783f22 22%, var(--bg));
+  background: color-mix(in srgb, #2a8b9a 22%, var(--bg));
 }
 .budget-bar-fill-period-hourly {
-  background: #783f22;
+  background: #2a8b9a;
 }
 
 .budget-bar-track-period-custom {
-  background: color-mix(in srgb, #bfa584 22%, var(--bg));
+  background: color-mix(in srgb, #6b5ba8 22%, var(--bg));
 }
 .budget-bar-fill-period-custom {
-  background: #bfa584;
+  background: #6b5ba8;
 }
 
 .budget-bar-text-row {
@@ -246,75 +243,75 @@
 }
 
 .budget-period-label-monthly {
-  border-color: color-mix(in srgb, #30302c 62%, var(--border));
-  background: color-mix(in srgb, #30302c 12%, var(--bg));
-  color: color-mix(in srgb, #30302c 34%, var(--text) 66%);
+  border-color: color-mix(in srgb, #3d5170 62%, var(--border));
+  background: color-mix(in srgb, #3d5170 12%, var(--bg));
+  color: color-mix(in srgb, #3d5170 34%, var(--text) 66%);
 }
 
 .budget-period-label-weekly {
-  border-color: color-mix(in srgb, #68765c 62%, var(--border));
-  background: color-mix(in srgb, #68765c 12%, var(--bg));
-  color: color-mix(in srgb, #68765c 34%, var(--text) 66%);
+  border-color: color-mix(in srgb, #4a7fc7 62%, var(--border));
+  background: color-mix(in srgb, #4a7fc7 12%, var(--bg));
+  color: color-mix(in srgb, #4a7fc7 34%, var(--text) 66%);
 }
 
 .budget-period-label-daily {
-  border-color: color-mix(in srgb, #b5652d 62%, var(--border));
-  background: color-mix(in srgb, #b5652d 12%, var(--bg));
-  color: color-mix(in srgb, #b5652d 34%, var(--text) 66%);
+  border-color: color-mix(in srgb, #2370c2 62%, var(--border));
+  background: color-mix(in srgb, #2370c2 12%, var(--bg));
+  color: color-mix(in srgb, #2370c2 34%, var(--text) 66%);
 }
 
 .budget-period-label-hourly {
-  border-color: color-mix(in srgb, #783f22 62%, var(--border));
-  background: color-mix(in srgb, #783f22 12%, var(--bg));
-  color: color-mix(in srgb, #783f22 34%, var(--text) 66%);
+  border-color: color-mix(in srgb, #2a8b9a 62%, var(--border));
+  background: color-mix(in srgb, #2a8b9a 12%, var(--bg));
+  color: color-mix(in srgb, #2a8b9a 34%, var(--text) 66%);
 }
 
 .budget-period-label-custom {
   border-style: dashed;
-  border-color: color-mix(in srgb, #bfa584 68%, var(--border));
-  background: color-mix(in srgb, #bfa584 16%, var(--bg));
-  color: color-mix(in srgb, #8b6f4f 34%, var(--text) 66%);
+  border-color: color-mix(in srgb, #6b5ba8 68%, var(--border));
+  background: color-mix(in srgb, #6b5ba8 16%, var(--bg));
+  color: color-mix(in srgb, #6b5ba8 34%, var(--text) 66%);
 }
 
 [data-theme="light"] .budget-period-label-monthly {
-  color: #30302c;
+  color: #3d5170;
 }
 
 [data-theme="light"] .budget-period-label-weekly {
-  color: #68765c;
+  color: #4a7fc7;
 }
 
 [data-theme="light"] .budget-period-label-daily {
-  color: #b5652d;
+  color: #2370c2;
 }
 
 [data-theme="light"] .budget-period-label-hourly {
-  color: #783f22;
+  color: #2a8b9a;
 }
 
 [data-theme="light"] .budget-period-label-custom {
-  color: #8b6f4f;
+  color: #6b5ba8;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .budget-period-label-monthly {
-      color: #30302c;
+      color: #3d5170;
     }
 
   :root:not([data-theme="dark"]) .budget-period-label-weekly {
-      color: #68765c;
+      color: #4a7fc7;
     }
 
   :root:not([data-theme="dark"]) .budget-period-label-daily {
-      color: #b5652d;
+      color: #2370c2;
     }
 
   :root:not([data-theme="dark"]) .budget-period-label-hourly {
-      color: #783f22;
+      color: #2a8b9a;
     }
 
   :root:not([data-theme="dark"]) .budget-period-label-custom {
-      color: #8b6f4f;
+      color: #6b5ba8;
     }
 }
 

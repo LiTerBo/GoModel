@@ -51,19 +51,19 @@ export function resolveCssColor(expr) {
   return resolved || expr;
 }
 
-// Categorical palette for series and label chips.
+// Categorical palette for series and label chips — cool-blue range.
 const PALETTE = [
-  "#c2845a",
-  "#7a9e7e",
-  "#d4a574",
-  "#b8a98e",
-  "#8b9e6b",
-  "#7d8a97",
-  "#c47a5a",
-  "#6b8e6b",
-  "#a09486",
+  "#4a7fc7",
+  "#7aadf0",
+  "#2aa8a0",
+  "#8a6fc4",
+  "#3b82f6",
+  "#5a9f9e",
+  "#6b8eae",
   "#9b7ea4",
-  "#c49a6c",
+  "#4e8dc9",
+  "#6699cc",
+  "#7a8ae0",
 ];
 
 export function barColors() {

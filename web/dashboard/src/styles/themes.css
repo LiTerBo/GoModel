@@ -1,4 +1,4 @@
-/* GoModel Dashboard Styles */
+/* GoModel Dashboard Styles — Blue Accent Scheme */
 /* The light palette below is deliberately written twice: once for an explicit
    [data-theme="light"] and once for the system preference, because
    themeStore.apply() *removes* data-theme in "system" mode, so neither block
@@ -6,49 +6,49 @@
    reads these variables back through getComputedStyle, and an unregistered
    custom property computes to its token stream — Chart.js would receive the
    literal "light-dark(...)" text instead of a color. */
-/* Dark mode (default) — matches gomodel.enterpilot.io */
+/* Dark mode (default) — blue-accent scheme */
 :root {
-  --bg: #111110;
-  --bg-surface: #1e1d1c;
-  --bg-surface-hover: #2a2420;
-  --border: #2a2826;
-  --text: #e8e0d6;
-  --text-muted: #9a918a;
-  --accent: #b8956e;
-  --accent-hover: #d4b896;
+  --bg: #000000;
+  --bg-surface: #272729;
+  --bg-surface-hover: #2a2a2c;
+  --border: #333333;
+  --text: #ffffff;
+  --text-muted: #7a7a7a;
+  --accent: #0066cc;
+  --accent-hover: #0071e3;
   --success: #34d399;
-  --info: #3b82f6;
+  --info: #2997ff;
   --warning: #f59e0b;
   --danger: #ef4444;
   --prompt-cache-color: color-mix(in srgb, var(--info) 72%, #ffffff);
   --prompt-cache-color-bg: color-mix(in srgb, var(--token-prompt) 24%, var(--bg-surface));
   /* Cache meter segments share the live token-throughput palette (defined
      below) so the meter and the chart read consistently: Regular is the paid
-     brown (input); local and prompt caches are the translucent blues, cheaper
+     blue (input); local and prompt caches are the translucent blues, cheaper
      = more transparent. */
   --cache-meter-uncached: var(--token-input);
   --cache-meter-local: var(--token-local);
   --cache-meter-prompt: var(--token-prompt);
   /* Live token throughput series, coloured by cost. Input and output are the
-     paid tokens: solid, light browns (output a shade lighter so the pair reads
+     paid tokens: solid blues (output a shade lighter so the pair reads
      together). Cached tokens are cheap, so they read as translucent blue —
      prompt-cache reads (almost free) are semi-transparent; local cache hits
      (no provider cost) are the most transparent. */
-  --token-input: #c0824a;
-  --token-output: #ddb27a;
+  --token-input: #4a7fc7;
+  --token-output: #7aadf0;
   --token-prompt: color-mix(in srgb, var(--info) 60%, transparent);
   --token-local: color-mix(in srgb, var(--info) 20%, transparent);
   --sidebar-width: 240px;
   --radius: 8px;
-  --chart-grid: #2a2826;
-  --chart-text: #9a918a;
+  --chart-grid: #333333;
+  --chart-text: #7a7a7a;
   /* High-contrast color for chart day-boundary markers (divider line + date
      label) so they stand out from the muted axis text: bright on dark,
      dark on light. */
   --chart-day-marker: var(--text);
-  --chart-tooltip-bg: #1e1d1c;
-  --chart-tooltip-border: #2a2826;
-  --chart-tooltip-text: #e8e0d6;
+  --chart-tooltip-bg: #272729;
+  --chart-tooltip-border: #333333;
+  --chart-tooltip-text: #ffffff;
   /* Activity-calendar ramp — graduated blue derived from the prompt-cache blue
      (--info) so the chart reads like the cache visuals. Dark theme climbs from a
      dark navy through --info and into a brighter tint, giving 10 distinguishable
@@ -77,28 +77,28 @@
   color-scheme: dark;
 }
 
-/* Light mode — matches gomodel.enterpilot.io */
+/* Light mode — blue-accent scheme */
 [data-theme="light"] {
-  --bg: #f5f0ea;
+  --bg: #f5f5f7;
   --bg-surface: #ffffff;
-  --bg-surface-hover: #ece5dc;
-  --border: #e8e0d6;
-  --text: #2d2519;
-  --text-muted: #7a7068;
-  --accent: #755c3d;
-  --accent-hover: #9a7d5a;
+  --bg-surface-hover: #fafafc;
+  --border: #e0e0e0;
+  --text: #1d1d1f;
+  --text-muted: #7a7a7a;
+  --accent: #0066cc;
+  --accent-hover: #0071e3;
   --success: #34d399;
-  --info: #2563eb;
+  --info: #0066cc;
   --warning: #d97706;
   --danger: #dc2626;
   --prompt-cache-color: color-mix(in srgb, var(--info) 84%, #0f172a);
   --prompt-cache-color-bg: color-mix(in srgb, var(--token-prompt) 18%, var(--bg-surface));
-  --chart-grid: #e8e0d6;
-  --chart-text: #7a7068;
+  --chart-grid: #e0e0e0;
+  --chart-text: #7a7a7a;
   --chart-day-marker: var(--text);
   --chart-tooltip-bg: #ffffff;
-  --chart-tooltip-border: #e8e0d6;
-  --chart-tooltip-text: #2d2519;
+  --chart-tooltip-border: #e0e0e0;
+  --chart-tooltip-text: #1d1d1f;
   /* Light theme: graduated blue climbing from a pale tint through --info into a
      deep navy, keeping 10 distinguishable steps (see :root for the dark ramp). */
   --cal-level-0: #ebedf0;
@@ -128,26 +128,26 @@
 /* System preference: light */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-      --bg: #f5f0ea;
+      --bg: #f5f5f7;
       --bg-surface: #ffffff;
-      --bg-surface-hover: #ece5dc;
-      --border: #e8e0d6;
-      --text: #2d2519;
-      --text-muted: #7a7068;
-      --accent: #755c3d;
-      --accent-hover: #9a7d5a;
+      --bg-surface-hover: #fafafc;
+      --border: #e0e0e0;
+      --text: #1d1d1f;
+      --text-muted: #7a7a7a;
+      --accent: #0066cc;
+      --accent-hover: #0071e3;
       --success: #34d399;
-      --info: #2563eb;
+      --info: #0066cc;
       --warning: #d97706;
       --danger: #dc2626;
       --prompt-cache-color: color-mix(in srgb, var(--info) 84%, #0f172a);
       --prompt-cache-color-bg: color-mix(in srgb, var(--token-prompt) 18%, var(--bg-surface));
-      --chart-grid: #e8e0d6;
-      --chart-text: #7a7068;
+      --chart-grid: #e0e0e0;
+      --chart-text: #7a7a7a;
       --chart-day-marker: var(--text);
       --chart-tooltip-bg: #ffffff;
-      --chart-tooltip-border: #e8e0d6;
-      --chart-tooltip-text: #2d2519;
+      --chart-tooltip-border: #e0e0e0;
+      --chart-tooltip-text: #1d1d1f;
       /* Light theme (system preference): mirror the [data-theme="light"] blue ramp. */
       --cal-level-0: #ebedf0;
       --cal-level-1: color-mix(in srgb, var(--info) 12%, #ffffff);
