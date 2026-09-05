@@ -64,6 +64,15 @@ func TestDefaultProviderFactoryCredentialForms(t *testing.T) {
 			required:     nil,
 		},
 		{
+			// Generic OpenAI-compatible endpoint: API key is optional, base
+			// URL defaults to a common local inference port.
+			providerType: "openai-compatible",
+			defaultURL:   "http://localhost:8000/v1",
+			fields:       []string{"api_keys", "base_url", "session_sticky_keys", "models"},
+			required:     nil,
+			absent:       []string{"api_version"},
+		},
+		{
 			// llm-d can be keyless, but it has no meaningful universal endpoint.
 			providerType: "llmd",
 			fields:       []string{"api_keys", "base_url", "session_sticky_keys", "models"},
@@ -176,7 +185,7 @@ var credentialPayloadFields = []string{
 func TestDefaultProviderFactoryRegistersAllProviderTypes(t *testing.T) {
 	expected := []string{
 		"anthropic", "azure", "bailian", "bedrock", "bedrock-mantle", "chatgpt", "chutes", "cohere", "deepseek", "elevenlabs",
-		"fireworks", "gemini", "groq", "hetzner", "kilo", "kimicode", "llamacpp", "llmd", "meta", "minimax", "ollama", "openai", "opencode_go",
+		"fireworks", "gemini", "groq", "hetzner", "kilo", "kimicode", "llamacpp", "llmd", "meta", "minimax", "ollama", "openai", "openai-compatible", "opencode_go",
 		"openrouter", "oracle", "sglang", "vertex", "vllm", "xai", "xiaomi", "zai",
 	}
 

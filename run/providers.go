@@ -2,6 +2,7 @@ package run
 
 import (
 	"github.com/enterpilot/gomodel/config"
+	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/observability"
 	"github.com/enterpilot/gomodel/internal/providers"
 	"github.com/enterpilot/gomodel/internal/providers/anthropic"
@@ -47,6 +48,20 @@ func defaultProviderFactory(cfg *config.Config) *providers.ProviderFactory {
 	}
 
 	factory.Add(openai.Registration)
+	factory.Add(providers.Registration{
+		Type: "openai-compatible",
+		New: func(cfg providers.ProviderConfig, opts providers.ProviderOptions) core.Provider {
+			baseURL := providers.ResolveBaseURL(cfg.BaseURL, "http://localhost:8000/v1")
+			return openai.NewChatCompatible(cfg.APIKey, opts, openai.CompatibleProviderConfig{
+				ProviderName: cfg.Name,
+				BaseURL:      baseURL,
+			})
+		},
+		Discovery: providers.DiscoveryConfig{
+			DefaultBaseURL:  "http://localhost:8000/v1",
+			AllowAPIKeyless: true,
+		},
+	})
 	factory.Add(openrouter.Registration)
 	factory.Add(azure.Registration)
 	factory.Add(bailian.Registration)
