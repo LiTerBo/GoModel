@@ -24,6 +24,15 @@
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
+/* Capability provenance / runtime-warning badge (models page). Amber warn
+   tone uses the standard warning hue mixed with the theme border so it
+   stays legible in both light and dark themes. */
+.model-warn-badge {
+  color: #b45309;
+  border-color: color-mix(in srgb, #b45309 55%, var(--border));
+  background: color-mix(in srgb, #b45309 8%, var(--bg));
+}
+
 .form h3 {
   font-size: 20px;
   font-weight: 700;

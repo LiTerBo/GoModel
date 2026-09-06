@@ -23,7 +23,8 @@ import {
   maskingRoutingLabel,
 } from "./routing.js";
   import AccessToggle from "./AccessToggle.svelte";
-  import { CircleDollarSign, Gauge, Pencil, ShieldCheck, Split, Trash2 } from "lucide";
+  import { modelTest } from "./modelTest.svelte.js";
+  import { AlertTriangle, BadgeCheck, CircleDollarSign, FlaskConical, Gauge, Pencil, ShieldCheck, Split, Trash2 } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
 
   // columns: the active category's column spec from categoryColumns.js
@@ -31,6 +32,13 @@ import {
   let { row, columns } = $props();
 
   const pricing = $derived(pricingOverrides.modelRowPricing(row));
+  // Capability provenance (J-1): which verification streams confirmed this
+  // real model's capabilities — offline probes ("test") and/or audit-log
+  // traffic mining ("observed"). Static inference needs no badge.
+  const capSources = $derived(row.model?.metadata?.capability_sources ?? {});
+  const hasTestedCaps = $derived(Object.values(capSources).some((s) => s === "test"));
+  const hasObservedCaps = $derived(Object.values(capSources).some((s) => s === "observed"));
+  const hasCapabilityError = $derived(Boolean(row.model?.metadata?.capability_error));
   const configuredSlowdown = $derived(
     row.is_alias
       ? row.alias && row.alias.slowdown
@@ -118,6 +126,24 @@ import {
         {#if rowIsManaged(row)}
           <span class="alias-kind-badge" title={m.models_managed_config()}>{m.models_config()}</span>
         {/if}
+        {#if hasTestedCaps}
+          <span class="alias-kind-badge" role="img" aria-label={m.models_cap_src_title_test()} title={m.models_cap_src_title_test()}>
+            <Icon icon={BadgeCheck} class="model-kind-icon-svg" />
+            {m.models_cap_src_test()}
+          </span>
+        {/if}
+        {#if hasObservedCaps}
+          <span class="alias-kind-badge" role="img" aria-label={m.models_cap_src_title_observed()} title={m.models_cap_src_title_observed()}>
+            <Icon icon={BadgeCheck} class="model-kind-icon-svg" />
+            {m.models_cap_src_observed()}
+          </span>
+        {/if}
+        {#if hasCapabilityError}
+          <span class="alias-kind-badge model-warn-badge" role="img" aria-label={m.models_cap_warn_title()} title={m.models_cap_warn_title()}>
+            <Icon icon={AlertTriangle} class="model-kind-icon-svg" />
+            {m.models_cap_warn()}
+          </span>
+        {/if}
       </div>
       {#if row.is_alias}
         <div class="model-name-secondary">
@@ -197,6 +223,18 @@ import {
             onclick={() => rateLimits.openRateLimitInspectorForModel(row)}
           >
             <Icon icon={Gauge} class="table-icon-svg" />
+          </TableActionButton>
+        {/if}
+        {#if row.provider_name && row.model?.id}
+          <TableActionButton
+            label={modelTest.state(row.provider_name, row.model.id)?.running
+              ? m.models_cap_test_running()
+              : m.models_cap_test_action()}
+            class="table-icon-btn"
+            disabled={Boolean(modelTest.state(row.provider_name, row.model.id)?.running)}
+            onclick={() => modelTest.runTest(row.provider_name, row.model.id)}
+          >
+            <Icon icon={FlaskConical} class="table-icon-svg" />
           </TableActionButton>
         {/if}
         {#if virtualModels.virtualModelsAvailable && row.masking_alias && row.masking_alias.name}

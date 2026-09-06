@@ -212,8 +212,13 @@
   "audit_retention_indefinitely": "indefinitely",
   "audit_retention_days": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} day",
         "count_plural=*": "{count} days"
@@ -243,8 +248,13 @@
   "audit_live_pause_pagination": "Live paused on later pages. Go to the first page to resume.",
   "audit_session_description": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "Session with {count} request",
         "count_plural=*": "Session with {count} requests"
@@ -277,8 +287,13 @@
   "audit_model_strip_copy_label": "Copy {label} model {model}",
   "audit_provider_attempts": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} provider attempt",
         "count_plural=*": "{count} provider attempts"
@@ -447,8 +462,13 @@
   "overview_no_data": "no data",
   "overview_provider_attention": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} needs attention",
         "count_plural=*": "{count} need attention"
@@ -590,6 +610,14 @@
   "models_redirect": "Redirect",
   "models_managed_config": "Managed by config.yaml / VIRTUAL_MODELS",
   "models_config": "Config",
+  "models_cap_src_test": "Verified by probe",
+  "models_cap_src_observed": "Verified by traffic",
+  "models_cap_src_title_test": "Capabilities confirmed by an offline model test",
+  "models_cap_src_title_observed": "Capabilities confirmed by observed traffic (>=3 sessions)",
+  "models_cap_warn": "Capability errors",
+  "models_cap_warn_title": "This model recently failed requests with type or capability mismatches — run a model test",
+  "models_cap_test_action": "Run capability test",
+  "models_cap_test_running": "Testing…",
   "models_targets": "Targets",
   "models_redirects_to": "Redirects to",
   "models_falls_back_to": "Falls back to",
@@ -928,8 +956,13 @@
   "settings_runtime_refresh_summary": "{status} {models} · {providers}.",
   "settings_runtime_refresh_models": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} model",
         "count_plural=*": "{count} models"
@@ -938,8 +971,13 @@
   ],
   "settings_runtime_refresh_providers": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} provider",
         "count_plural=*": "{count} providers"
@@ -966,8 +1004,14 @@
   "settings_pricing_failed": "Unable to recalculate pricing.",
   "settings_pricing_summary": [
     {
-      "declarations": ["input matched", "input recalculated", "local matched_plural = matched: plural"],
-      "selectors": ["matched_plural"],
+      "declarations": [
+        "input matched",
+        "input recalculated",
+        "local matched_plural = matched: plural"
+      ],
+      "selectors": [
+        "matched_plural"
+      ],
       "match": {
         "matched_plural=one": "Pricing recalculated for {recalculated} of {matched} usage record.",
         "matched_plural=*": "Pricing recalculated for {recalculated} of {matched} usage records."
@@ -976,8 +1020,13 @@
   ],
   "settings_pricing_missing": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} usage record still lacks pricing metadata.",
         "count_plural=*": "{count} usage records still lack pricing metadata."
@@ -1019,8 +1068,13 @@
   "pagination_summary": "Showing {start}–{end} of {total}",
   "date_picker_last_days": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "Last {count} day",
         "count_plural=*": "Last {count} days"
@@ -1029,8 +1083,13 @@
   ],
   "date_picker_days": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} day",
         "count_plural=*": "{count} days"
@@ -1238,8 +1297,13 @@
   "providers_default_value": "Defaults to {value}",
   "providers_keys_count": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} key",
         "count_plural=*": "{count} keys"
@@ -1251,8 +1315,13 @@
   "providers_auto_discovered": "auto-discovered",
   "providers_models_count": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} model",
         "count_plural=*": "{count} models"
@@ -1293,8 +1362,13 @@
   "models_allowed_for": "Allowed for {paths}",
   "models_count": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} model",
         "count_plural=*": "{count} models"
@@ -1303,8 +1377,13 @@
   ],
   "models_alias_count": [
     {
-      "declarations": ["input count", "local count_plural = count: plural"],
-      "selectors": ["count_plural"],
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
       "match": {
         "count_plural=one": "{count} alias",
         "count_plural=*": "{count} aliases"
