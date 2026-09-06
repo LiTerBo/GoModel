@@ -15,6 +15,7 @@ import (
 	"github.com/enterpilot/gomodel/internal/guardrails"
 	"github.com/enterpilot/gomodel/internal/live"
 	"github.com/enterpilot/gomodel/internal/mcpgateway"
+	"github.com/enterpilot/gomodel/internal/modeldata/modeltest"
 	"github.com/enterpilot/gomodel/internal/pricingoverrides"
 	"github.com/enterpilot/gomodel/internal/providers"
 	"github.com/enterpilot/gomodel/internal/ratelimit"
@@ -49,6 +50,7 @@ func (b *bootstrap) initAdmin() error {
 			b.usageReader,
 			app.storage,
 			app.providers.Registry,
+			app.providers.Router,
 			app.providers.ConfiguredProviders,
 			app.authKeys.Service,
 			app.users.Service,
@@ -113,6 +115,7 @@ func newAdminHandlers(
 	reader usage.UsageReader,
 	sharedStorage storage.Storage,
 	registry *providers.ModelRegistry,
+	router *providers.Router,
 	configuredProviders []providers.SanitizedProviderConfig,
 	authKeyService *authkeys.Service,
 	userService *users.Service,
@@ -169,6 +172,18 @@ func newAdminHandlers(
 		providerCredentialsOption = admin.WithProviderCredentials(providerCredentialsResult.Service)
 	}
 
+	// Offline model probes run through the shared provider router; the
+	// registry itself performs capability confirmations. The router satisfies
+	// modeltest's ChatProber and EmbeddingProber directly.
+	var modelTestOption admin.Option
+	if registry != nil && router != nil {
+		prober := modeltest.New(router, router, modeltest.Config{})
+		modelTestOption = admin.WithModelTest(&admin.ModelTestService{
+			Prober:   adminModelTestProber{prober},
+			Registry: registry,
+		})
+	}
+
 	adminHandler := admin.NewHandler(
 		reader,
 		registry,
@@ -189,6 +204,7 @@ func newAdminHandlers(
 		admin.WithRuntimeSettings(runtimeSettingsService),
 		mcpOption,
 		providerCredentialsOption,
+		modelTestOption,
 		admin.WithRuntimeRefresher(runtimeRefresher),
 		admin.WithDashboardRuntimeConfig(runtimeConfig),
 		admin.WithLiveBroker(liveBroker),

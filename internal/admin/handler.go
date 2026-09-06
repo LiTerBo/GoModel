@@ -57,6 +57,8 @@ type Handler struct {
 	providerCredentials ProviderCredentialsAdmin
 	requestHealth       RequestHealthSource
 	quotaTemplates      bool
+	modelTest           ModelTestAdmin
+	modelTestResults    *modelTestStore
 
 	mutationMu sync.Mutex
 	pricingMu  sync.Mutex
@@ -285,6 +287,16 @@ func WithUsers(service *users.Service) Option {
 func WithPricingOverrides(service *pricingoverrides.Service) Option {
 	return func(h *Handler) {
 		h.pricingOverrides = service
+	}
+}
+
+// WithModelTest enables offline model probe administration endpoints. The
+// adapter bundles the probe runner and the registry confirmation channel;
+// results are stored on the handler for later reads.
+func WithModelTest(adapter ModelTestAdmin) Option {
+	return func(h *Handler) {
+		h.modelTest = adapter
+		h.modelTestResults = newModelTestStore()
 	}
 }
 
