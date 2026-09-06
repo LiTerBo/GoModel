@@ -326,6 +326,12 @@ const (
 	CapSrcConfig = "config"
 	// CapSrcHeuristic marks a capability inferred from the model ID as a fallback.
 	CapSrcHeuristic = "heuristic"
+	// CapSrcTest marks a capability positively confirmed by an operator-run
+	// offline probe (modeltest), then persisted via models.json/config.
+	CapSrcTest = "test"
+	// CapSrcObserved marks a capability confirmed from aggregated audit-log
+	// observations (≥3 distinct sessions), gated by operator confirmation.
+	CapSrcObserved = "observed"
 )
 
 // FieldSources returns non-empty pricing field names mapped to source.
