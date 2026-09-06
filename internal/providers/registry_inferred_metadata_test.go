@@ -12,8 +12,8 @@ import (
 // ID heuristic: a local model absent from the remote model registry (the
 // llama.cpp / LM Studio / Ollama case) whose ID clearly names an embedding
 // model is categorized as an embedding model, so the dashboard's Embeddings
-// filter and category counts see it. Registry data and operator overrides
-// always win over the inference.
+// filter and category counts see it. Non-embedding models default to chat.
+// Registry data and operator overrides always win over the inference.
 func TestInitialize_InfersEmbeddingModesForUnknownModels(t *testing.T) {
 	registry := NewModelRegistry()
 
@@ -50,8 +50,10 @@ func TestInitialize_InfersEmbeddingModesForUnknownModels(t *testing.T) {
 
 	if info := registry.GetModel("lagash/llama-3.1-8b-instruct"); info == nil {
 		t.Fatal("expected llama-3.1-8b-instruct to be registered")
-	} else if info.Model.Metadata != nil {
-		t.Errorf("llama-3.1-8b-instruct metadata = %+v, want nil (no inference)", info.Model.Metadata)
+	} else if info.Model.Metadata == nil {
+		t.Fatal("expected llama-3.1-8b-instruct to have inferred chat metadata")
+	} else if len(info.Model.Metadata.Modes) != 1 || info.Model.Metadata.Modes[0] != "chat" {
+		t.Errorf("llama-3.1-8b-instruct Modes = %v, want [chat]", info.Model.Metadata.Modes)
 	}
 
 	embeddings := registry.ListModelsWithProviderByCategory(core.CategoryEmbedding)
@@ -88,8 +90,8 @@ func TestApplyInferredModelMetadata_ReplacementsProtocol(t *testing.T) {
 	replacements := map[*ModelInfo]*ModelInfo{orig: prior}
 
 	applied := applyInferredModelMetadata(map[string]map[string]*ModelInfo{"eridu": providerModels}, replacements)
-	if applied != 2 {
-		t.Fatalf("applied = %d, want 2", applied)
+	if applied != 3 {
+		t.Fatalf("applied = %d, want 3 (2 embedding + 1 default chat)", applied)
 	}
 
 	// Original pointers must be untouched; new entries carry the metadata.
@@ -110,8 +112,16 @@ func TestApplyInferredModelMetadata_ReplacementsProtocol(t *testing.T) {
 	if got := replacements[orig]; got != providerModels["bge-m3"] {
 		t.Error("replacement chain broken: orig does not map to the final entry")
 	}
-	if chat.Model.Metadata != nil || providerModels["some-chat-model"] != chat {
-		t.Error("non-inferable model must be left untouched")
+	// "some-chat-model" now gets default chat inference; check it has chat metadata.
+	chatNext := providerModels["some-chat-model"]
+	if chatNext == nil || chatNext.Model.Metadata == nil {
+		t.Fatal("some-chat-model must have inferred chat metadata")
+	}
+	if len(chatNext.Model.Metadata.Modes) != 1 || chatNext.Model.Metadata.Modes[0] != "chat" {
+		t.Errorf("some-chat-model Modes = %v, want [chat]", chatNext.Model.Metadata.Modes)
+	}
+	if chat.Model.Metadata != nil {
+		t.Error("original chat ModelInfo must not be mutated in place")
 	}
 }
 

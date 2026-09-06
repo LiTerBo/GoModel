@@ -523,8 +523,11 @@ func TestModelRegistry(t *testing.T) {
 		if before == nil {
 			t.Fatal("expected GetModel to return a published ModelInfo")
 		}
-		if before.Model.Metadata != nil {
-			t.Fatalf("expected initial metadata to be nil, got %#v", before.Model.Metadata)
+		if before.Model.Metadata == nil {
+			t.Fatal("expected initial metadata from ID inference (default chat)")
+		}
+		if len(before.Model.Metadata.Modes) != 1 || before.Model.Metadata.Modes[0] != "chat" {
+			t.Fatalf("expected initial metadata modes to be [chat] (default inference), got %v", before.Model.Metadata.Modes)
 		}
 
 		raw := []byte(`{
@@ -552,8 +555,11 @@ func TestModelRegistry(t *testing.T) {
 		registry.SetModelList(list, raw)
 		registry.EnrichModels()
 
-		if before.Model.Metadata != nil {
-			t.Fatalf("expected previously published ModelInfo to remain unchanged, got %#v", before.Model.Metadata)
+		if before.Model.Metadata == nil {
+			t.Fatal("expected previously published ModelInfo to retain its metadata")
+		}
+		if len(before.Model.Metadata.Modes) != 1 || before.Model.Metadata.Modes[0] != "chat" {
+			t.Fatalf("expected before.Model.Metadata modes to be [chat], got %v", before.Model.Metadata.Modes)
 		}
 
 		after := registry.GetModel("test-model")
@@ -2216,8 +2222,9 @@ func TestListModelsWithProviderByCategory(t *testing.T) {
 
 	t.Run("FilterTextGeneration", func(t *testing.T) {
 		models := registry.ListModelsWithProviderByCategory(core.CategoryTextGeneration)
-		if len(models) != 1 {
-			t.Fatalf("expected 1 text_generation model, got %d", len(models))
+		// gpt-4o (declared chat) + no-metadata (defaults to chat via ID inference).
+		if len(models) != 2 {
+			t.Fatalf("expected 2 text_generation model, got %d", len(models))
 		}
 		if models[0].Model.ID != "gpt-4o" {
 			t.Errorf("expected gpt-4o, got %s", models[0].Model.ID)
@@ -2353,6 +2360,117 @@ func TestGetCategoryCounts_CountsProviderBackedModels(t *testing.T) {
 	}
 }
 
+func TestGetCategoryCounts_IncludesCapabilityDerivedCategories(t *testing.T) {
+	registry := NewModelRegistry()
+	registry.modelsByProvider = map[string]map[string]*ModelInfo{
+		"provider-openai": {
+			"gpt-4o": {
+				Model: core.Model{
+					ID: "gpt-4o",
+					Metadata: &core.ModelMetadata{
+						Categories: []core.ModelCategory{core.CategoryTextGeneration},
+						Capabilities: map[string]bool{
+							"vision":           true,
+							"function_calling": true,
+						},
+					},
+				},
+				ProviderName: "provider-openai",
+				ProviderType: "openai",
+			},
+			"whisper-1": {
+				Model: core.Model{
+					ID: "whisper-1",
+					Metadata: &core.ModelMetadata{
+						Categories: []core.ModelCategory{core.CategoryAudio},
+						Capabilities: map[string]bool{
+							"function_calling": true,
+						},
+					},
+				},
+				ProviderName: "provider-openai",
+				ProviderType: "openai",
+			},
+			"dall-e-3": {
+				Model: core.Model{
+					ID: "dall-e-3",
+					Metadata: &core.ModelMetadata{
+						Categories: []core.ModelCategory{core.CategoryImage},
+					},
+				},
+				ProviderName: "provider-openai",
+				ProviderType: "openai",
+			},
+		},
+	}
+
+	counts := registry.GetCategoryCounts()
+	got := make(map[core.ModelCategory]int)
+	for _, c := range counts {
+		got[c.Category] = c.Count
+	}
+
+	// gpt-4o: text_generation + vision->image + function_calling->utility
+	// whisper-1: audio + function_calling->utility
+	// dall-e-3: image
+	// total = 3
+	if got[core.CategoryAll] != 3 {
+		t.Fatalf("all count = %d, want 3", got[core.CategoryAll])
+	}
+	if got[core.CategoryTextGeneration] != 1 {
+		t.Fatalf("text_generation count = %d, want 1", got[core.CategoryTextGeneration])
+	}
+	if got[core.CategoryImage] != 2 { // gpt-4o (vision) + dall-e-3 (mode)
+		t.Fatalf("image count = %d, want 2", got[core.CategoryImage])
+	}
+	if got[core.CategoryAudio] != 1 {
+		t.Fatalf("audio count = %d, want 1", got[core.CategoryAudio])
+	}
+	if got[core.CategoryUtility] != 2 { // gpt-4o (function_calling) + whisper-1 (function_calling)
+		t.Fatalf("utility count = %d, want 2", got[core.CategoryUtility])
+	}
+}
+
+func TestListModelsWithProviderByCategory_FilterByCapability(t *testing.T) {
+	registry := NewModelRegistry()
+	registry.modelsByProvider = map[string]map[string]*ModelInfo{
+		"provider-openai": {
+			"gpt-4o": {
+				Model: core.Model{
+					ID: "gpt-4o",
+					Metadata: &core.ModelMetadata{
+						Categories: []core.ModelCategory{core.CategoryTextGeneration},
+						Capabilities: map[string]bool{
+							"vision":           true,
+							"function_calling": true,
+						},
+					},
+				},
+				ProviderName: "provider-openai",
+				ProviderType: "openai",
+			},
+		},
+	}
+
+	// Filter by image: should find gpt-4o via vision:true capability
+	imageModels := registry.ListModelsWithProviderByCategory(core.CategoryImage)
+	if len(imageModels) != 1 {
+		t.Fatalf("image-category models = %d, want 1", len(imageModels))
+	}
+	if imageModels[0].Model.ID != "gpt-4o" {
+		t.Fatalf("image model ID = %q, want %q", imageModels[0].Model.ID, "gpt-4o")
+	}
+
+	// Filter by utility: should find gpt-4o via function_calling:true
+	utilityModels := registry.ListModelsWithProviderByCategory(core.CategoryUtility)
+	if len(utilityModels) != 1 {
+		t.Fatalf("utility-category models = %d, want 1", len(utilityModels))
+	}
+	if utilityModels[0].Model.ID != "gpt-4o" {
+		t.Fatalf("utility model ID = %q, want %q", utilityModels[0].Model.ID, "gpt-4o")
+	}
+}
+
 func TestGetCategoryCounts(t *testing.T) {
 	registry := NewModelRegistry()
 	mock := &registryMockProvider{
@@ -2401,8 +2519,9 @@ func TestGetCategoryCounts(t *testing.T) {
 	if countMap[core.CategoryAll] != 5 {
 		t.Errorf("All count = %d, want 5", countMap[core.CategoryAll])
 	}
-	if countMap[core.CategoryTextGeneration] != 2 {
-		t.Errorf("TextGeneration count = %d, want 2", countMap[core.CategoryTextGeneration])
+	// gpt-4o, gpt-4o-mini (declared) + no-metadata (defaults to chat via ID inference).
+	if countMap[core.CategoryTextGeneration] != 3 {
+		t.Errorf("TextGeneration count = %d, want 3", countMap[core.CategoryTextGeneration])
 	}
 	if countMap[core.CategoryEmbedding] != 1 {
 		t.Errorf("Embedding count = %d, want 1", countMap[core.CategoryEmbedding])

@@ -171,7 +171,7 @@ func (r *ModelRegistry) getProviderModelMetadata(providerSelector, model string)
 	defer r.mu.RUnlock()
 
 	if modelProviderName != "" {
-		if meta := metadataFromProviderModel(r.modelsByProvider[modelProviderName], modelID, model); meta != nil {
+		if meta := metadataFromProviderModel(r.modelsByProvider[modelProviderName], model, modelID); meta != nil {
 			return meta
 		}
 		if r.hasConfiguredProviderNameLocked(modelProviderName) {
@@ -442,6 +442,26 @@ func applyInferredModelMetadata(
 			}
 			merged.Modes = modes
 			merged.Categories = core.CategoriesForModes(modes)
+			if caps := modeldata.InferCapabilitiesFromID(modelID); len(caps) > 0 {
+				if merged.Capabilities == nil {
+					merged.Capabilities = make(map[string]bool, len(caps))
+				}
+				for k, v := range caps {
+					merged.Capabilities[k] = v
+				}
+				if merged.CapabilitySources == nil {
+					merged.CapabilitySources = make(map[string]string, len(caps))
+				}
+				for k := range caps {
+					merged.CapabilitySources[k] = core.CapSrcHeuristic
+				}
+			}
+			// Final safety net: apply the blacklist so specialty models never
+			// carry a capability they fundamentally cannot support, regardless
+			// of how it got into the map (heuristic, stray registry entry, etc.).
+			if merged.Capabilities != nil {
+				merged.Capabilities = modeldata.ApplyCapabilityBlacklist(modelID, merged.Capabilities)
+			}
 			if replacements == nil {
 				current.Model.Metadata = merged
 				applied++

@@ -78,8 +78,11 @@ func TestInitialize_AppliesConfigMetadataOverrides(t *testing.T) {
 	if untouched == nil {
 		t.Fatal("expected Gemma4-31B to be registered")
 	}
-	if untouched.Model.Metadata != nil {
-		t.Errorf("expected nil metadata for non-overridden model, got %+v", untouched.Model.Metadata)
+	if untouched.Model.Metadata == nil {
+		t.Fatal("expected Gemma4-31B to have inferred chat metadata")
+	}
+	if len(untouched.Model.Metadata.Modes) != 1 || untouched.Model.Metadata.Modes[0] != "chat" {
+		t.Errorf("Gemma4-31B Modes = %v, want [chat] (default inference)", untouched.Model.Metadata.Modes)
 	}
 }
 

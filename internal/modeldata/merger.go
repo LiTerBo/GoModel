@@ -273,6 +273,12 @@ func buildMetadata(model *ModelEntry, pm *ProviderModelEntry) *core.ModelMetadat
 		meta.ContextWindow = model.ContextWindow
 		meta.MaxOutputTokens = model.MaxOutputTokens
 		meta.Capabilities = model.Capabilities
+		if len(model.Capabilities) > 0 {
+			meta.CapabilitySources = make(map[string]string, len(model.Capabilities))
+			for k := range model.Capabilities {
+				meta.CapabilitySources[k] = core.CapSrcRegistry
+			}
+		}
 		meta.Rankings = buildRankings(model.Rankings)
 		meta.Pricing = model.Pricing
 		meta.PricingSources = model.Pricing.FieldSources(core.ModelPricingSourceModelRegistry)

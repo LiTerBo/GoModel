@@ -55,7 +55,25 @@ func Enrich(accessor ModelInfoAccessor, list *ModelList) EnrichStats {
 			accessor.SetMetadata(modelID, discovered.Clone())
 			continue
 		}
-		accessor.SetMetadata(modelID, MergeMetadata(catalog, discovered))
+		merged := MergeMetadata(catalog, discovered)
+		// Mark capabilities that the provider itself reported as discovered, so
+		// operators can tell which flags came from runtime discovery vs. the
+		// static registry / config (CapabilitySources).
+		if discovered != nil && len(discovered.Capabilities) > 0 {
+			if merged.CapabilitySources == nil {
+				merged.CapabilitySources = make(map[string]string, len(discovered.Capabilities))
+			}
+			for k := range discovered.Capabilities {
+				merged.CapabilitySources[k] = core.CapSrcDiscovered
+			}
+		}
+		// Apply capability blacklist on the final merged set: specialty models
+		// (whisper, embedding, etc.) must never carry function_calling or vision
+		// even if the registry or provider erroneously reports them.
+		if merged.Capabilities != nil {
+			merged.Capabilities = ApplyCapabilityBlacklist(modelID, merged.Capabilities)
+		}
+		accessor.SetMetadata(modelID, merged)
 		enriched++
 	}
 

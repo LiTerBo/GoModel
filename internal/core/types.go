@@ -192,19 +192,24 @@ type Model struct {
 // ModelMetadata holds enriched metadata from the external model registry.
 // YAML tags mirror the JSON field names so operators can declare metadata
 // overrides in config.yaml in the same shape that appears in /v1/models output.
+// ModelMetadata holds optional metadata for a model, sourced from the model
+// registry, the provider's own discovery, config.yaml, or ID-based heuristics.
+// The winning source for each field is tracked in PricingSources and
+// CapabilitySources for debugging and observability.
 type ModelMetadata struct {
-	DisplayName     string                  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Description     string                  `json:"description,omitempty" yaml:"description,omitempty"`
-	Family          string                  `json:"family,omitempty" yaml:"family,omitempty"`
-	Modes           []string                `json:"modes,omitempty" yaml:"modes,omitempty"`
-	Categories      []ModelCategory         `json:"categories,omitempty" yaml:"categories,omitempty"`
-	Tags            []string                `json:"tags,omitempty" yaml:"tags,omitempty"`
-	ContextWindow   *int                    `json:"context_window,omitempty" yaml:"context_window,omitempty"`
-	MaxOutputTokens *int                    `json:"max_output_tokens,omitempty" yaml:"max_output_tokens,omitempty"`
-	Capabilities    map[string]bool         `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
-	Rankings        map[string]ModelRanking `json:"rankings,omitempty" yaml:"rankings,omitempty"`
-	Pricing         *ModelPricing           `json:"pricing,omitempty" yaml:"pricing,omitempty"`
-	PricingSources  map[string]string       `json:"pricing_sources,omitempty" yaml:"-"`
+	DisplayName       string                  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description       string                  `json:"description,omitempty" yaml:"description,omitempty"`
+	Family            string                  `json:"family,omitempty" yaml:"family,omitempty"`
+	Modes             []string                `json:"modes,omitempty" yaml:"modes,omitempty"`
+	Categories        []ModelCategory         `json:"categories,omitempty" yaml:"categories,omitempty"`
+	Tags              []string                `json:"tags,omitempty" yaml:"tags,omitempty"`
+	ContextWindow     *int                    `json:"context_window,omitempty" yaml:"context_window,omitempty"`
+	MaxOutputTokens   *int                    `json:"max_output_tokens,omitempty" yaml:"max_output_tokens,omitempty"`
+	Capabilities      map[string]bool         `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	CapabilitySources map[string]string       `json:"capability_sources,omitempty" yaml:"-"`
+	Rankings          map[string]ModelRanking `json:"rankings,omitempty" yaml:"rankings,omitempty"`
+	Pricing           *ModelPricing           `json:"pricing,omitempty" yaml:"pricing,omitempty"`
+	PricingSources    map[string]string       `json:"pricing_sources,omitempty" yaml:"-"`
 }
 
 // ModelRanking holds one benchmark or leaderboard entry for a model.
@@ -307,6 +312,20 @@ const (
 	ModelPricingSourceModelRegistry = "model_registry"
 	// ModelPricingSourceConfigYAML identifies pricing data from config.yaml.
 	ModelPricingSourceConfigYAML = "config_yaml"
+)
+
+// Capability source identifiers, mirroring the pricing source pattern, so
+// operators can tell where a capability flag came from when debugging why a
+// model is (or is not) treated as vision/tool-calling/reasoning-capable.
+const (
+	// CapSrcRegistry marks a capability that came from the remote model registry (models.json).
+	CapSrcRegistry = "registry"
+	// CapSrcDiscovered marks a capability the provider itself reported at runtime.
+	CapSrcDiscovered = "discovered"
+	// CapSrcConfig marks a capability declared by the operator in config.yaml.
+	CapSrcConfig = "config"
+	// CapSrcHeuristic marks a capability inferred from the model ID as a fallback.
+	CapSrcHeuristic = "heuristic"
 )
 
 // FieldSources returns non-empty pricing field names mapped to source.
@@ -471,6 +490,12 @@ func (m *ModelMetadata) Clone() *ModelMetadata {
 		maps.Copy(out.PricingSources, m.PricingSources)
 	} else {
 		out.PricingSources = nil
+	}
+	if len(m.CapabilitySources) > 0 {
+		out.CapabilitySources = make(map[string]string, len(m.CapabilitySources))
+		maps.Copy(out.CapabilitySources, m.CapabilitySources)
+	} else {
+		out.CapabilitySources = nil
 	}
 	return &out
 }

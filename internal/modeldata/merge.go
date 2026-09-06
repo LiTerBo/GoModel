@@ -59,6 +59,17 @@ func MergeMetadata(base, override *core.ModelMetadata) *core.ModelMetadata {
 		maps.Copy(out, merged.Capabilities)
 		maps.Copy(out, override.Capabilities)
 		merged.Capabilities = out
+
+		// CapabilitySources follows the same override rule: override keys
+		// replace base keys, base keys not present in override are preserved.
+		if len(override.CapabilitySources) > 0 {
+			if merged.CapabilitySources == nil {
+				merged.CapabilitySources = make(map[string]string, len(override.CapabilitySources))
+			}
+			for k, src := range override.CapabilitySources {
+				merged.CapabilitySources[k] = src
+			}
+		}
 	}
 	if len(override.Rankings) > 0 {
 		out := make(map[string]core.ModelRanking, len(merged.Rankings)+len(override.Rankings))

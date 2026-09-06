@@ -306,7 +306,7 @@ func (r *ModelRegistry) ListModelsWithProviderByCategory(category core.ModelCate
 			continue
 		}
 		for modelID, info := range providerModels {
-			if info.Model.Metadata == nil || !hasCategory(info.Model.Metadata.Categories, category) {
+			if info.Model.Metadata == nil || !modelMatchesCategory(info.Model.Metadata, category) {
 				continue
 			}
 			result = append(result, ModelWithProvider{
@@ -351,8 +351,40 @@ var categoryDisplayNames = map[core.ModelCategory]string{
 	core.CategoryUtility:        "Utility",
 }
 
+// capabilityToCategory maps capability keys to the model categories they imply.
+// A model with a matching capability is counted in the corresponding category
+// even if its mode-based category does not (e.g. a chat model with vision:true
+// is counted in the image category).
+var capabilityToCategory = map[string]core.ModelCategory{
+	"vision":           core.CategoryImage,
+	"audio_input":      core.CategoryAudio,
+	"audio_output":     core.CategoryAudio,
+	"video_input":      core.CategoryVideo,
+	"function_calling": core.CategoryUtility,
+	"tool_choice":      core.CategoryUtility,
+}
+
+// modelMatchesCategory checks whether a model belongs to the given category,
+// considering both its mode-derived Categories and its capability flags.
+func modelMatchesCategory(meta *core.ModelMetadata, category core.ModelCategory) bool {
+	if meta == nil {
+		return false
+	}
+	if hasCategory(meta.Categories, category) {
+		return true
+	}
+	for capKey, cat := range capabilityToCategory {
+		if cat == category && meta.Capabilities[capKey] {
+			return true
+		}
+	}
+	return false
+}
+
 // GetCategoryCounts returns model counts per category, in display order.
-// A model with multiple categories is counted in each.
+// A model with multiple categories is counted in each. Categories are
+// determined both from the model's mode-derived Categories and from its
+// Capabilities (e.g. a chat model with vision:true counts in image).
 func (r *ModelRegistry) GetCategoryCounts() []CategoryCount {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -368,6 +400,12 @@ func (r *ModelRegistry) GetCategoryCounts() []CategoryCount {
 			if info.Model.Metadata != nil {
 				for _, cat := range info.Model.Metadata.Categories {
 					counts[cat]++
+				}
+				// Also count by capability flags
+				for capKey, cat := range capabilityToCategory {
+					if info.Model.Metadata.Capabilities[capKey] {
+						counts[cat]++
+					}
 				}
 			}
 		}
