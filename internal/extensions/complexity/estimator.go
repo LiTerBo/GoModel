@@ -2,17 +2,16 @@ package complexity
 
 import (
 	"math"
-	"regexp"
-	"strings"
 
 	"github.com/enterpilot/gomodel/ext"
+	"github.com/enterpilot/gomodel/internal/core"
 )
 
-// Complexity level band names come from Tier*.
-
-// Feature weights of the complexity score. Calibrated from model-router's
-// 88-session K-Means baseline, to be re-fit from GoModel audit samples after
-// the trial month (D-Q4). They sum to 1.
+// Feature weights of the complexity score. These are the trial-run human
+// estimates (Q4): the relative shape follows model-router's published
+// weighting (current message dominates, context least), absolute values get
+// re-fit from GoModel's audit-log traffic after the one-month trial. They
+// sum to 1.
 var weights = struct {
 	currentLength float64
 	avgUserLength float64
@@ -34,8 +33,8 @@ var weights = struct {
 }
 
 // Log-scale reference points: the raw value mapped to score 1.0 at the upper
-// bound and ~0 at the lower (log1p scale). Derived from the same corpus as
-// the weights; re-fit alongside them.
+// bound and ~0 at the lower (log1p scale). Trial-run estimates; re-fit with
+// the weights.
 var refPoints = struct {
 	currentLength, avgUserLength, messageCount, userTurns, toolDefs, contextLength float64
 }{
@@ -46,12 +45,6 @@ var refPoints = struct {
 	toolDefs:      12,
 	contextLength: 120000,
 }
-
-var (
-	codeFenceRe = regexp.MustCompile("(?s)```[^\\n]+")
-	numberedRe  = regexp.MustCompile(`(?m)^\s*\d+[.)]\s+`)
-	bulletRe    = regexp.MustCompile("(?m)^\\s*[-*•]\\s+")
-)
 
 // Score maps a request summary to a complexity score in [0,1]. A nil or
 // zero-value summary scores 0 (the most trivial band). Pure function: safe
@@ -98,26 +91,9 @@ func Classify(score float64, t Thresholds) string {
 	}
 }
 
-// DetectHasCode reports whether a content block contains a fenced code block.
-func DetectHasCode(text string) bool { return codeFenceRe.MatchString(text) }
-
-// DetectHasMultiStep reports numbered (≥3) or bulleted (≥4) step lists.
-func DetectHasMultiStep(text string) bool {
-	return len(numberedRe.FindAllString(text, 3)) >= 3 ||
-		len(bulletRe.FindAllString(text, 4)) >= 4
-}
-
-// Summarize builds the lightweight RouteContent for a chat-style request:
-// counts and lengths only, message text never leaves the caller.
-func Summarize(messages int, userTurns, contextChars, currentChars, avgUserChars, toolDefs int, hasCode, hasMultiStep bool) *ext.RouteContent {
-	return &ext.RouteContent{
-		MessageCount: messages, UserTurns: userTurns,
-		ContextChars: contextChars, CurrentChars: currentChars,
-		AvgUserChars: avgUserChars, ToolDefs: toolDefs,
-		HasCode: hasCode, HasMultiStep: hasMultiStep,
-	}
-}
-
-// HasFencedCode scans joined text for a code fence (kept for gateway-side
-// convenience).
-func HasFencedCode(text string) bool { return strings.Contains(text, "```") }
+// DetectHasCode / DetectHasMultiStep delegate to the core feature detectors —
+// the single source of truth shared with the gateway-side summary builder.
+var (
+	DetectHasCode      = core.DetectCodeFence
+	DetectHasMultiStep = core.DetectMultiStepList
+)

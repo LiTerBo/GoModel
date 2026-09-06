@@ -25,6 +25,9 @@ type Config struct {
 	// first qualified model of a tier that is present in the candidate
 	// pool wins; later entries are the in-tier upgrade order.
 	Tiers TierMap `yaml:"tiers"`
+	// VirtualModel restricts the selector to one virtual model source
+	// (e.g. "smart"). Empty applies to every adaptive redirect.
+	VirtualModel string `yaml:"virtual_model"`
 }
 
 // Thresholds are the boundaries of the four complexity bands.

@@ -9,11 +9,13 @@ import (
 
 // PrepareChatRequest resolves workflow/model policy and applies translated request patching.
 func (o *InferenceOrchestrator) PrepareChatRequest(ctx context.Context, req *core.ChatRequest, meta RequestMeta) (*PreparedChatRequest, error) {
+	ctx = WithRouteSummary(ctx, BuildRouteContent(req), BuildRequiredCapabilities(req))
 	return prepareTranslated(o, ctx, req, meta, chatPrepareSpec)
 }
 
 // PrepareResponsesRequest resolves workflow/model policy and applies translated request patching.
 func (o *InferenceOrchestrator) PrepareResponsesRequest(ctx context.Context, req *core.ResponsesRequest, meta RequestMeta) (*PreparedResponsesRequest, error) {
+	ctx = WithRouteSummary(ctx, BuildRouteContentResponses(req), BuildRequiredCapabilitiesResponses(req))
 	return prepareTranslated(o, ctx, req, meta, responsesPrepareSpec)
 }
 
