@@ -215,6 +215,48 @@ func (h *Handler) ConfirmModelCapabilities(c *echo.Context) error {
 	return c.JSON(http.StatusOK, req.Caps)
 }
 
+// ConfirmObservedCapabilities handles PUT /admin/models/observed-capabilities:
+// operator confirmation of a passive-observation suggestion (W2b). Same
+// persistence channel as probe confirmations, but stamped with the
+// "observed" source so provenance stays distinguishable.
+//
+// @Summary      Confirm observed capabilities
+// @Description  Persists operator-confirmed capabilities mined from audit-log observations (≥3 distinct sessions), with the observed source.
+// @Tags         admin
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        request  body  confirmCapabilityRequest  true  "Target and confirmed capabilities"
+// @Success      200  {object}  map[string]bool
+// @Failure      400  {object}  core.GatewayError
+// @Failure      401  {object}  core.GatewayError
+// @Failure      404  {object}  core.GatewayError
+// @Failure      503  {object}  core.GatewayError
+// @Router       /admin/models/observed-capabilities [put]
+func (h *Handler) ConfirmObservedCapabilities(c *echo.Context) error {
+	if h.modelTest == nil {
+		return handleError(c, featureUnavailableError("model test feature is unavailable"))
+	}
+	var req confirmCapabilityRequest
+	if err := c.Bind(&req); err != nil {
+		return handleError(c, core.NewInvalidRequestError("invalid request body: "+err.Error(), err))
+	}
+	req.Provider = strings.TrimSpace(req.Provider)
+	req.Model = strings.TrimSpace(req.Model)
+	if req.Provider == "" || req.Model == "" || len(req.Caps) == 0 {
+		return handleError(c, core.NewInvalidRequestError("provider, model and capabilities are required", nil))
+	}
+	for key := range req.Caps {
+		if strings.TrimSpace(key) == "" {
+			return handleError(c, core.NewInvalidRequestError("capability keys must be non-empty", nil))
+		}
+	}
+	if !h.modelTest.MergeModelCapabilities(req.Provider, req.Model, req.Caps, core.CapSrcObserved) {
+		return handleError(c, core.NewModelNotFoundError(selectorOf(req.Provider, req.Model)))
+	}
+	return c.JSON(http.StatusOK, req.Caps)
+}
+
 func resolveProbes(names []string) ([]modeltest.Probe, error) {
 	if len(names) == 0 {
 		return []modeltest.Probe{modeltest.ProbeChat, modeltest.ProbeFunctionCalling}, nil

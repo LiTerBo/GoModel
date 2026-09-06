@@ -106,6 +106,7 @@ func (s *translatedInferenceService) dispatchChatCompletion(c *echo.Context, req
 	s.observeLiveProviderAttempts(c, workflow)
 	ctx := c.Request().Context()
 	requestID := requestIDFromContextOrHeader(c.Request())
+	enrichCapabilitySignals(c, req, nil) // request-side signals (tools/image)
 
 	adm, err := enforceAdmission(c, s.rateLimiter, s.budgetChecker,
 		rateLimitRouteFromWorkflow(workflow).withFailovers(len(s.inference().FailoverSelectors(workflow))))
@@ -146,6 +147,7 @@ func (s *translatedInferenceService) dispatchChatCompletion(c *echo.Context, req
 		markRequestFailoverUsed(c)
 		auditlog.EnrichEntryWithFailover(c, result.Meta.FailoverModel)
 	}
+	enrichCapabilitySignals(c, nil, result.Response) // response-side tool_calls signal
 	auditlog.EnrichEntryWithResolvedRoute(
 		c,
 		qualifyExecutedModel(workflow, result.Response.Model, result.Meta.ProviderName),

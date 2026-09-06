@@ -156,6 +156,11 @@ type LogData struct {
 	Temperature *float64 `json:"temperature,omitempty" bson:"temperature,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty" bson:"max_tokens,omitempty"`
 
+	// CapabilitySignals distills capability evidence from this request
+	// (tools present, tool_calls observed, image present) for offline
+	// observation mining. Nil means not captured. See capability_signals.go.
+	CapabilitySignals *CapabilitySignals `json:"capability_signals,omitempty" bson:"capability_signals,omitempty"`
+
 	// Error details (message can be long, so kept in JSON)
 	ErrorMessage string `json:"error_message,omitempty" bson:"error_message,omitempty"`
 	ErrorCode    string `json:"error_code,omitempty" bson:"error_code,omitempty"`
