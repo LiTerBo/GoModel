@@ -76,6 +76,7 @@ func (h *Handler) RegisterRoutes(g RouteRegistrar) {
 	g.GET("/models/test-results", h.ListModelTestResults, global)
 	g.PUT("/models/capabilities", h.ConfirmModelCapabilities, global)
 	g.GET("/models/capability-errors", h.handleCapabilityErrors, global)
+	g.GET("/models/observed-suggestions", h.ListObservedSuggestions, global)
 	g.PUT("/models/observed-capabilities", h.ConfirmObservedCapabilities, global)
 
 	g.GET("/virtual-models", h.ListVirtualModels, global)

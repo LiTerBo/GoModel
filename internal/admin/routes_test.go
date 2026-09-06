@@ -86,6 +86,7 @@ func TestRegisterRoutes_RegistersExpectedPaths(t *testing.T) {
 		"PUT /admin/models/capabilities",
 		"PUT /admin/models/observed-capabilities",
 		"GET /admin/models/capability-errors",
+		"GET /admin/models/observed-suggestions",
 
 		"GET /admin/virtual-models",
 		"PUT /admin/virtual-models",

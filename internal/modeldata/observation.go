@@ -21,12 +21,12 @@ type ObservationRow struct {
 // Only support/unsupport exist: rows that cannot establish either simply
 // produce no suggestion (INCONCLUSIVE never becomes one).
 type Suggestion struct {
-	Provider        string
-	Model           string
-	Capability      string
-	Verdict         string // "support" | "unsupport"
-	EvidenceSession int    // distinct sessions backing the verdict
-	Source          string // core.CapSrcObserved
+	Provider        string `json:"provider"`
+	Model           string `json:"model"`
+	Capability      string `json:"capability"`
+	Verdict         string `json:"verdict"` // "support" | "unsupport"
+	EvidenceSession int    `json:"evidence_session"` // distinct sessions backing the verdict
+	Source          string `json:"source"`           // core.CapSrcObserved
 }
 
 // Suggestion verdicts.
