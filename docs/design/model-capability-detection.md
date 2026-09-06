@@ -444,3 +444,46 @@ func ApplyCapabilityBlacklist(modelID string, caps map[string]bool) map[string]b
 | `internal/modeldata/enricher.go` | 66 | 注册表→provider 的 enrichment 协调 |
 | `internal/core/types.go` | 522 | 核心数据模型（ModelMetadata 等） |
 | `config/provider_models.go` | 93 | 配置声明的模型 metadata |
+
+---
+
+## 6. 检测结果持久化决策（2026-09-06 已确认）
+
+### 6.1 背景与现状
+
+当前 enrichment 管道每次启动都会重新跑：`buildMetadata → MergeMetadata → ApplyCapabilityBlacklist`，结果只存在内存中（`ModelInfo.Metadata`）。现有的 `ModelCache`（`internal/cache/modelcache`）持久化只存 `CachedModel{ID, Created}`，**不含 Metadata**；`models.json` 原文件本身由 `readLocal()` 的 sha256 digest 做条件读取。
+
+### 6.2 检测结果的确定性
+
+检测结果由以下来源决定，任一变化才需重算：
+
+| 变化源 | 触发 | 判定 |
+|--------|------|------|
+| `models.json` 内容 | digest 变化 | digest 比较 |
+| `config.yaml` metadata override | 配置热更 | 配置校验 |
+| 启发式规则（`IsVisionModelID`/`ApplyCapabilityBlacklist`） | 版本升级 | 代码版本 |
+| Provider 自身上报 metadata | 运行时发现 | 运行时快照 |
+
+### 6.3 三方案评估
+
+| 方案 | 做法 | 优点 | 缺点 |
+|------|------|------|------|
+| **A. 扩展现有 ModelCache** | `CachedModel` 附带 `*ModelMetadata` | 复用缓存层、改动小 | config override 变化导致 stale；缓存膨胀 |
+| **B. sidecar `.enriched.json`** | 同目录生成 models.enriched.json，digest 绑定 | 独立于运行时缓存、可预分发、可审查 | 多一个文件路径与并发写处理 |
+| **C. 保持内存重算** | 不持久化 | 零改动、零 stale | 每次启动重算 |
+
+### 6.4 决策：方案 C 为主、方案 B 为辅
+
+**当前阶段采用方案 C（保持内存重算）**，理由：
+
+1. **性能可忽略**：896 个模型的 enrichment 管道（`IsVisionModelID` + `ApplyCapabilityBlacklist`，均为 O(n) 字符串匹配）在本地运行 < 1 秒，为 1 秒启动耗时引入持久化不符合 KISS 原则（AGENTS.md）。
+2. **`models.json` 本身即持久化载体**：检测结果合并进 `capabilities` 后，`MergeMetadata` 中 config override 覆盖 base。用户若需固化某个模型的检测结果，直接编辑 `models.json` 的 `capabilities` 字段即可，无需额外机制。
+3. **stale data 零风险**：每次启动从原始输入重建，不存在缓存未失效问题。
+
+**何时升级到方案 B**（满足其一即考虑）：
+
+- 模型数量 > 5000，启动时间成为可感知瓶颈
+- 需要把 enriched 数据作为 artifact 预分发（git 化物、多实例共享）
+- 需要对检测结果做 ack 审查/版本控制（`models.json` 作为不可编辑的只读源，enriched 作为派生产物）
+
+方案 A（扩展 ModelCache）不推荐：它把「检测结果」和「运行时 provider 发现」耦合进同一缓存，失效信号交织，是三者中维护成本最高、最易出错的选择。
