@@ -18,6 +18,11 @@ type RouteCandidate struct {
 	Weight        float64
 	InputPerMtok  *float64
 	OutputPerMtok *float64
+	// Capabilities is the target's detected capability set (e.g.
+	// "vision", "function_calling"), deep-copied from the model catalog so
+	// selectors cannot mutate shared state. Nil means the catalog has no
+	// capability information for this target.
+	Capabilities map[string]bool
 }
 
 // RouteRequest asks a RouteSelector to pick one target for a request routed
@@ -43,6 +48,17 @@ type RouteRequest struct {
 	// asked for affinity, and moving a session costs prompt-cache warmth.
 	SessionTarget string
 	Candidates    []RouteCandidate
+	// Content is the lightweight summary of the incoming request (counts
+	// and lengths only, never message bodies). It is nil for endpoints
+	// without a chat-like body, so complexity-aware selectors must treat a
+	// nil Content as "no signal".
+	Content *RouteContent
+	// RequiredCapabilities lists the capability keys the request demands,
+	// such as "vision" when it carries image parts or "function_calling"
+	// when it carries tool definitions. Empty when the request demands
+	// nothing; selectors that hard-filter on capabilities must fall back
+	// gracefully rather than fail when no candidate matches.
+	RequiredCapabilities []string
 }
 
 // RouteTarget identifies a provider/model pair as seen by the upstream

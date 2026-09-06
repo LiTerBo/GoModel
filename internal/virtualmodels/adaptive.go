@@ -1,7 +1,9 @@
 package virtualmodels
 
 import (
+	"context"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/enterpilot/gomodel/ext"
@@ -15,7 +17,7 @@ import (
 // declines, it answers with a model outside the pool, or it panics.
 // Selectors are extension code running on the request path, so a panic is
 // contained here rather than failing the request.
-func (s *Service) adaptiveTarget(entry *redirectEntry, sessionID, pinned string, pool []resolvedTarget) (target resolvedTarget, ok bool) {
+func (s *Service) adaptiveTarget(ctx context.Context, entry *redirectEntry, sessionID, pinned string, pool []resolvedTarget) (target resolvedTarget, ok bool) {
 	selector := s.routeSelector
 	if selector == nil {
 		return resolvedTarget{}, false
@@ -32,10 +34,12 @@ func (s *Service) adaptiveTarget(entry *redirectEntry, sessionID, pinned string,
 	}()
 
 	req := ext.RouteRequest{
-		Source:        entry.vm.Source,
-		SessionID:     sessionID,
-		SessionTarget: pinned,
-		Candidates:    make([]ext.RouteCandidate, len(pool)),
+		Source:               entry.vm.Source,
+		SessionID:            sessionID,
+		SessionTarget:        pinned,
+		Candidates:           make([]ext.RouteCandidate, len(pool)),
+		Content:              ext.RouteContentFromContext(ctx),
+		RequiredCapabilities: ext.RequiredCapabilitiesFromContext(ctx),
 	}
 	now := time.Now()
 	for i, t := range pool {
@@ -45,12 +49,15 @@ func (s *Service) adaptiveTarget(entry *redirectEntry, sessionID, pinned string,
 			Qualified: t.qualified,
 			Weight:    t.weight,
 		}
-		if model, found := s.catalog.LookupModel(t.qualified); found && model != nil && model.Metadata != nil && model.Metadata.Pricing != nil {
+		if model, found := s.catalog.LookupModel(t.qualified); found && model != nil && model.Metadata != nil {
 			// Copies, not the catalog's pointers: extension code must not be
-			// able to mutate shared pricing (or race catalog updates).
-			pricing := model.Metadata.Pricing.AtTime(now)
-			candidate.InputPerMtok = copyPrice(pricing.InputPerMtok)
-			candidate.OutputPerMtok = copyPrice(pricing.OutputPerMtok)
+			// able to mutate shared pricing or capabilities (or race catalog
+			// updates).
+			if pricing := model.Metadata.Pricing.AtTime(now); pricing != nil {
+				candidate.InputPerMtok = copyPrice(pricing.InputPerMtok)
+				candidate.OutputPerMtok = copyPrice(pricing.OutputPerMtok)
+			}
+			candidate.Capabilities = copyCapabilities(model.Metadata.Capabilities)
 		}
 		req.Candidates[i] = candidate
 	}
@@ -69,4 +76,16 @@ func copyPrice(price *float64) *float64 {
 	}
 	v := *price
 	return &v
+}
+
+// copyCapabilities clones the catalog's capability flags for a candidate.
+// Nil input yields a nil map, which selectors must read as "no capability
+// information".
+func copyCapabilities(caps map[string]bool) map[string]bool {
+	if len(caps) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(caps))
+	maps.Copy(out, caps)
+	return out
 }
