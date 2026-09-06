@@ -52,3 +52,20 @@ func EnrichEntryWithCapabilitySignals(c *echo.Context, signals CapabilitySignals
 	enrichEntryWithCapabilitySignals(entry, signals)
 	publishLiveAuditUpdate(c, entry)
 }
+
+// EnrichEntryWithCapabilityError records a runtime type/capability mismatch
+// on the request's audit entry (W3). kind is one of the gateway
+// CapabilityErrorKind strings; empty is a no-op so callers can pass the
+// detector's "" verdict directly.
+func EnrichEntryWithCapabilityError(c *echo.Context, kind string) {
+	if c == nil || kind == "" {
+		return
+	}
+	entry := entryFromContext(c)
+	if entry == nil {
+		return
+	}
+	data := ensureLogData(entry)
+	data.CapabilityError = kind
+	publishLiveAuditUpdate(c, entry)
+}

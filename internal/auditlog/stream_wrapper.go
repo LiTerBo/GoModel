@@ -277,6 +277,7 @@ func CreateStreamEntry(ctx context.Context, baseEntry *LogEntry) *LogEntry {
 			signals := *baseEntry.Data.CapabilitySignals
 			entryCopy.Data.CapabilitySignals = &signals
 		}
+		entryCopy.Data.CapabilityError = baseEntry.Data.CapabilityError
 		if baseEntry.Data.Failover != nil {
 			snapshot := *baseEntry.Data.Failover
 			entryCopy.Data.Failover = &snapshot

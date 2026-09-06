@@ -127,6 +127,7 @@ func (b *bootstrap) initServerConfig() error {
 		UsageLogger:                     b.serverUsageLogger,
 		BudgetChecker:                   app.budgets.Service,
 		PricingResolver:                 b.pricingResolver,
+		CapabilityMetadataResolver:      capabilityMetadataResolver{registry: app.providers.Registry},
 		ModelResolver:                   vm,
 		ModelAuthorizer:                 vm,
 		FailoverResolver:                failoverResolver(appCfg, vm),

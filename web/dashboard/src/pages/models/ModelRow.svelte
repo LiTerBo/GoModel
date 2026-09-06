@@ -38,7 +38,12 @@ import {
   const capSources = $derived(row.model?.metadata?.capability_sources ?? {});
   const hasTestedCaps = $derived(Object.values(capSources).some((s) => s === "test"));
   const hasObservedCaps = $derived(Object.values(capSources).some((s) => s === "observed"));
-  const hasCapabilityError = $derived(Boolean(row.model?.metadata?.capability_error));
+  const runtimeCapError = $derived(
+    row.is_alias ? null : capabilityErrors.state(row.provider_name, row.model?.id),
+  );
+  const hasCapabilityError = $derived(
+    Boolean(row.model?.metadata?.capability_error) || Boolean(runtimeCapError),
+  );
   const configuredSlowdown = $derived(
     row.is_alias
       ? row.alias && row.alias.slowdown
@@ -139,7 +144,14 @@ import {
           </span>
         {/if}
         {#if hasCapabilityError}
-          <span class="alias-kind-badge model-warn-badge" role="img" aria-label={m.models_cap_warn_title()} title={m.models_cap_warn_title()}>
+          <span
+            class="alias-kind-badge model-warn-badge"
+            role="img"
+            aria-label={m.models_cap_warn_title()}
+            title={runtimeCapError
+              ? `${m.models_cap_warn_title()} (${runtimeCapError.latest_kind}, ${runtimeCapError.occurrences})`
+              : m.models_cap_warn_title()}
+          >
             <Icon icon={AlertTriangle} class="model-kind-icon-svg" />
             {m.models_cap_warn()}
           </span>

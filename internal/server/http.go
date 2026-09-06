@@ -80,6 +80,7 @@ type Config struct {
 	RateLimiter                     RateLimiter                            // Optional: per-user-path rate limiter
 	UsageSummarizer                 UsageSummarizer                        // Optional: usage aggregates for the self-service GET /v1/usage endpoint
 	PricingResolver                 usage.PricingResolver                  // Optional: Resolves pricing for cost calculation
+	CapabilityMetadataResolver      CapabilityMetadataResolver             // Optional: detected model metadata for runtime capability-mismatch detection (W3)
 	ModelResolver                   RequestModelResolver                   // Optional: explicit model resolver used during workflow resolution
 	ModelAuthorizer                 RequestModelAuthorizer                 // Optional: request-scoped concrete model access controller
 	WorkflowPolicyResolver          RequestWorkflowPolicyResolver          // Optional: persisted workflow resolver used during workflow resolution
@@ -178,16 +179,19 @@ func New(provider core.RoutableProvider, cfg *Config) *Server {
 	var workflowPolicyResolver RequestWorkflowPolicyResolver
 	var failoverResolver RequestFailoverResolver
 	var translatedRequestPatcher TranslatedRequestPatcher
+	var capabilityMetadata CapabilityMetadataResolver
 	if cfg != nil {
 		modelResolver = cfg.ModelResolver
 		modelAuthorizer = cfg.ModelAuthorizer
 		workflowPolicyResolver = cfg.WorkflowPolicyResolver
 		failoverResolver = cfg.FailoverResolver
 		translatedRequestPatcher = cfg.TranslatedRequestPatcher
+		capabilityMetadata = cfg.CapabilityMetadataResolver
 	}
 
 	handler := newHandlerWithAuthorizer(provider, auditLogger, usageLogger, pricingResolver, modelResolver, modelAuthorizer, workflowPolicyResolver, failoverResolver, translatedRequestPatcher)
 	handler.budgetChecker = budgetChecker
+	handler.capabilityMetadata = capabilityMetadata
 	if cfg != nil {
 		handler.failoverPolicy = cfg.FailoverPolicy
 		handler.rateLimiter = cfg.RateLimiter

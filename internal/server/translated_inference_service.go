@@ -32,6 +32,7 @@ import (
 type translatedInferenceService struct {
 	provider                 core.RoutableProvider
 	modelResolver            RequestModelResolver
+	capabilityMetadata       CapabilityMetadataResolver
 	modelAuthorizer          RequestModelAuthorizer
 	workflowPolicyResolver   RequestWorkflowPolicyResolver
 	failoverResolver         RequestFailoverResolver
@@ -115,6 +116,9 @@ func (s *translatedInferenceService) dispatchChatCompletion(c *echo.Context, req
 	}
 	defer adm.release()
 	ctx = adm.dispatchContext(ctx)
+
+	// W3: runtime capability/type mismatch detection, audit-only.
+	detectCapabilityError(c, s.capabilityMetadata, workflow, req)
 
 	feedbackEnabled := hasResponseFeedbackObservers(c)
 

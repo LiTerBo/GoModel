@@ -14,6 +14,7 @@
   import { virtualModels } from "./virtualModels.svelte.js";
   import { virtualModelEditor } from "./virtualModelEditor.svelte.js";
   import { pricingOverrides } from "./pricingOverrides.svelte.js";
+  import { capabilityErrors } from "./capabilityErrors.svelte.js";
   import ModelTable from "./ModelTable.svelte";
   import VirtualModelEditor from "./VirtualModelEditor.svelte";
   import PricingOverrideEditor from "./PricingOverrideEditor.svelte";
@@ -34,6 +35,7 @@
     virtualModels.fetchVirtualModels();
     pricingOverrides.fetchModelPricingOverrides();
     rateLimits.fetchRateLimitsPage();
+    void capabilityErrors.refresh();
   });
 
   // Bounded incremental rendering: whenever the visible rows change (model

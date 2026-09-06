@@ -24,6 +24,7 @@ import (
 type Handler struct {
 	provider                        core.RoutableProvider
 	modelResolver                   RequestModelResolver
+	capabilityMetadata              CapabilityMetadataResolver
 	modelAuthorizer                 RequestModelAuthorizer
 	failoverResolver                RequestFailoverResolver
 	failoverPolicy                  *gateway.FailoverPolicy
@@ -150,6 +151,7 @@ func (h *Handler) translatedInference() *translatedInferenceService {
 		s := &translatedInferenceService{
 			provider:                 h.provider,
 			modelResolver:            h.modelResolver,
+			capabilityMetadata:       h.capabilityMetadata,
 			modelAuthorizer:          h.modelAuthorizer,
 			workflowPolicyResolver:   h.workflowPolicyResolver,
 			failoverResolver:         h.failoverResolver,

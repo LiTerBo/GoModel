@@ -161,6 +161,12 @@ type LogData struct {
 	// observation mining. Nil means not captured. See capability_signals.go.
 	CapabilitySignals *CapabilitySignals `json:"capability_signals,omitempty" bson:"capability_signals,omitempty"`
 
+	// CapabilityError records a runtime mismatch detected before dispatch
+	// (W3): "type_mismatch" (endpoint↔mode) or "capability_mismatch"
+	// (explicit capability contradiction). Empty when compatible or when
+	// the model carries no detected judgment.
+	CapabilityError string `json:"capability_error,omitempty" bson:"capability_error,omitempty"`
+
 	// Error details (message can be long, so kept in JSON)
 	ErrorMessage string `json:"error_message,omitempty" bson:"error_message,omitempty"`
 	ErrorCode    string `json:"error_code,omitempty" bson:"error_code,omitempty"`
