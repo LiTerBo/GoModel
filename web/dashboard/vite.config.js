@@ -27,6 +27,12 @@ export default defineConfig(({ command }) => ({
       "../../internal/admin/dashboard/static/dist",
     ),
     emptyOutDir: true,
+    // The SPA ships as one chunk by design: the Go server serves it gzip'd
+    // (~330 kB total for JS+CSS) with an immutable one-year cache, so the
+    // cost is a single load per operator session. Vite warns once the chunk
+    // passes 1,024 kB minified — expected as pages grow, not a defect.
+    // If first load ever matters, split routes via dynamic import() (the
+    // overview page keeps chart.js in the entry chunk).
     chunkSizeWarningLimit: 1024,
   },
   server: {
