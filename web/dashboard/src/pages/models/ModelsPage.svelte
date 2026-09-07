@@ -49,9 +49,18 @@
     runtimeConfig.ensureLoaded();
   });
 
+  // The inventory can arrive while this page's first render is in flight,
+  // and Svelte 5 does not re-track a child component's template reads of a
+  // cross-module singleton's $derived values. Bridge the derived groups
+  // here (the page's own template tracking is reliable) and hand them to
+  // ModelTable as a reactive prop instead.
+  const modelGroups = $derived(virtualModels.filteredDisplayModelGroups);
+
   $effect(() => {
     const total = virtualModels.filteredDisplayModels.length;
-    untrack(() => virtualModels.restartModelRendering(total));
+    if (total > 0) {
+      untrack(() => virtualModels.restartModelRendering(total));
+    }
     return () => virtualModels.stopModelRendering();
   });
 
@@ -147,7 +156,7 @@
   <PricingOverrideEditor />
 
   {#if virtualModels.displayModels.length > 0 || modelsStore.filter}
-    <ModelTable />
+    <ModelTable groups={modelGroups} />
   {/if}
 
   {#if virtualModels.displayModels.length === 0 && !modelsStore.loading && !authError && !modelsStore.filter && (modelsStore.activeCategory === "all" || !modelsStore.activeCategory)}

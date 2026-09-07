@@ -23,6 +23,18 @@
   const category = $derived(modelsStore.activeCategory || "all");
   const columns = $derived(categoryColumns(category));
   const groupColspan = $derived(categoryColspan(category));
+
+  // groups comes from the page as a reactive prop: Svelte 5 does not
+  // re-track a child template's direct read of a cross-module singleton's
+  // $derived value, so ModelsPage bridges filteredDisplayModelGroups.
+  // The remaining reads are bridged for the same cross-module reason.
+  let { groups } = $props();
+  const pricingOverridesAvailable = $derived(
+    pricingOverrides.modelPricingOverridesAvailable,
+  );
+  const rateLimitsEnabled = $derived(rateLimits.rateLimitsEnabled());
+  const virtualModelsAvailable = $derived(virtualModels.virtualModelsAvailable);
+
 </script>
 
 <div class="table-wrapper">
@@ -40,7 +52,7 @@
         <th class="model-actions-header col-actions"><ModelGlobalActions /></th>
       </tr>
     </thead>
-    {#each virtualModels.filteredDisplayModelGroups as group (group.key)}
+    {#each groups as group (group.key)}
       <tbody>
         <tr class="provider-group-row">
           <td colspan={groupColspan}>
@@ -63,7 +75,7 @@
                 {#if group.access.selector}
                   <AccessToggle row={group} />
                 {/if}
-                {#if pricingOverrides.modelPricingOverridesAvailable && group.provider_name}
+                {#if pricingOverridesAvailable && group.provider_name}
                   <TableActionButton
                     label={pricingOverrides.modelPricingButtonLabel(m.models_provider_pricing_for({ name: group.display_name }), pricingOverrides.hasProviderPricingOverride(group))}
                     class="table-icon-btn {pricingOverrides.modelPricingButtonClass(pricingOverrides.hasProviderPricingOverride(group))}"
@@ -72,7 +84,7 @@
                     <Icon icon={CircleDollarSign} class="table-icon-svg" />
                   </TableActionButton>
                 {/if}
-                {#if rateLimits.rateLimitsEnabled() && group.provider_name}
+                {#if rateLimitsEnabled && group.provider_name}
                   <TableActionButton
                     label={rateLimits.rateLimitGaugeTitle( "provider " + group.display_name, rateLimits.rateLimitGaugeClassForProvider(group), )}
                     class="table-icon-btn {rateLimits.rateLimitGaugeClassForProvider(group)}"
@@ -81,7 +93,7 @@
                     <Icon icon={Gauge} class="table-icon-svg" />
                   </TableActionButton>
                 {/if}
-                {#if virtualModels.virtualModelsAvailable && group.access.selector}
+                {#if virtualModelsAvailable && group.access.selector}
                   <TableActionButton
                     label={modelOverrideEditButtonLabel(m.models_provider_access_for({ name: group.display_name }), hasAccessOverride(group.access))}
                     class="table-icon-btn {modelOverrideEditButtonClass(hasAccessOverride(group.access))}"

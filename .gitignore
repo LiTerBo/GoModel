@@ -29,6 +29,11 @@
 # Local pre-commit hook (not shared)
 /.githooks/
 
+# Local model catalog snapshots (runtime data, see cache.model.model_list.url)
+# and macOS Finder metadata
+/etc/
+.DS_Store
+
 # Others
 /*.bck.yml
 /repomix-output.*

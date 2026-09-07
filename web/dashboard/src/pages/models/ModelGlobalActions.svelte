@@ -12,13 +12,23 @@
   import AccessToggle from "./AccessToggle.svelte";
   import { CircleDollarSign, Pencil } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
+
+  // Bridge cross-module singleton store reads through component-level $derived
+  // so the template tracks them (Svelte 5 does not establish reactive deps on
+  // module-scope object properties read directly in markup).
+  const virtualModelsAvailable = $derived(virtualModels.virtualModelsAvailable);
+  const pricingOverridesAvailable = $derived(
+    pricingOverrides.modelPricingOverridesAvailable,
+  );
+  const globalScopeRow = $derived(virtualModels.globalScopeRow);
+  const hasGlobalModelOverride = $derived(virtualModels.hasGlobalModelOverride());
 </script>
 
 <div class="alias-actions-cell model-list-actions">
-  {#if virtualModels.virtualModelsAvailable}
-    <AccessToggle row={virtualModels.globalScopeRow} />
+  {#if virtualModelsAvailable}
+    <AccessToggle row={globalScopeRow} />
   {/if}
-  {#if pricingOverrides.modelPricingOverridesAvailable}
+  {#if pricingOverridesAvailable}
     <TableActionButton
       label={pricingOverrides.modelPricingButtonLabel(m.models_global_pricing(), pricingOverrides.hasGlobalPricingOverride())}
       class="table-icon-btn {pricingOverrides.modelPricingButtonClass(pricingOverrides.hasGlobalPricingOverride())}"
@@ -27,10 +37,10 @@
       <Icon icon={CircleDollarSign} class="table-icon-svg" />
     </TableActionButton>
   {/if}
-  {#if virtualModels.virtualModelsAvailable}
+  {#if virtualModelsAvailable}
     <TableActionButton
-      label={modelOverrideEditButtonLabel(m.models_global_access(), virtualModels.hasGlobalModelOverride())}
-      class="table-icon-btn {modelOverrideEditButtonClass(virtualModels.hasGlobalModelOverride())}"
+      label={modelOverrideEditButtonLabel(m.models_global_access(), hasGlobalModelOverride)}
+      class="table-icon-btn {modelOverrideEditButtonClass(hasGlobalModelOverride)}"
       onclick={() => virtualModelEditor.openGlobalModelOverrideEdit()}
     >
       <Icon icon={Pencil} class="table-icon-svg" />

@@ -24,12 +24,26 @@ import {
 } from "./routing.js";
   import AccessToggle from "./AccessToggle.svelte";
   import { modelTest } from "./modelTest.svelte.js";
+  import { capabilityErrors } from "./capabilityErrors.svelte.js";
   import { AlertTriangle, BadgeCheck, CircleDollarSign, FlaskConical, Gauge, Pencil, ShieldCheck, Split, Trash2 } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
 
   // columns: the active category's column spec from categoryColumns.js
   // (ModelTable renders the matching <thead> from the same spec).
   let { row, columns } = $props();
+
+  // Bridge cross-module singleton stores through component-level $derived so
+  // the template tracks them (Svelte 5 does not establish reactive deps on
+  // module-scope object properties read directly in markup).
+  const virtualModelsAvailable = $derived(virtualModels.virtualModelsAvailable);
+  const rowDeletingKey = $derived(virtualModels.rowDeletingKey);
+  const pricingOverridesAvailable = $derived(
+    pricingOverrides.modelPricingOverridesAvailable,
+  );
+  const rateLimitsEnabled = $derived(rateLimits.rateLimitsEnabled());
+  const modelTestState = $derived(
+    modelTest.state(row.provider_name, row.model?.id),
+  );
 
   const pricing = $derived(pricingOverrides.modelRowPricing(row));
   // Capability provenance (J-1): which verification streams confirmed this
@@ -165,13 +179,13 @@ import {
       {#if !row.is_alias && row.masking_alias}
         <div class="model-name-secondary">
           {routingPrefix} <span class="mono font-size-md">{maskingRoutingLabel(row.masking_alias, routingKind)}</span>
-          {#if virtualModels.virtualModelsAvailable && rowRedirectCanRemove(row)}
+          {#if virtualModelsAvailable && rowRedirectCanRemove(row)}
             <button
               type="button"
               class="model-redirect-remove-btn mono"
-              aria-label={virtualModels.rowDeletingKey === row.key ? routingRemovingLabel : routingRemoveLabel}
-              title={virtualModels.rowDeletingKey === row.key ? routingRemovingLabel : routingRemoveLabel}
-              disabled={Boolean(virtualModels.rowDeletingKey)}
+              aria-label={rowDeletingKey === row.key ? routingRemovingLabel : routingRemoveLabel}
+              title={rowDeletingKey === row.key ? routingRemovingLabel : routingRemoveLabel}
+              disabled={Boolean(rowDeletingKey)}
               onclick={() => virtualModels.removeRedirectRow(row)}
             >[{m.models_remove()}]</button>
           {/if}
@@ -194,19 +208,19 @@ import {
     {#if row.is_alias}
       <div class="alias-actions-cell model-list-actions">
         <AccessToggle {row} />
-        {#if virtualModels.virtualModelsAvailable && aliasRowCanRemove(row)}
+        {#if virtualModelsAvailable && aliasRowCanRemove(row)}
           <TableActionButton
-            label={virtualModels.rowDeletingKey === row.key
+            label={rowDeletingKey === row.key
               ? m.models_removing_alias({ name: row.alias.name })
               : m.models_remove_alias({ name: row.alias.name })}
             class="table-action-btn-danger table-icon-btn"
             onclick={() => virtualModels.removeAliasRow(row)}
-            disabled={Boolean(virtualModels.rowDeletingKey)}
+            disabled={Boolean(rowDeletingKey)}
           >
             <Icon icon={Trash2} class="table-icon-svg" />
           </TableActionButton>
         {/if}
-        {#if virtualModels.virtualModelsAvailable}
+        {#if virtualModelsAvailable}
           <TableActionButton
             label={m.models_edit_alias({ name: row.alias.name })}
             class="table-icon-btn table-action-btn-active"
@@ -219,7 +233,7 @@ import {
     {:else}
       <div class="alias-actions-cell model-list-actions">
         <AccessToggle {row} />
-        {#if pricingOverrides.modelPricingOverridesAvailable}
+        {#if pricingOverridesAvailable}
           <TableActionButton
             label={pricingOverrides.modelPricingButtonLabel(m.models_model_pricing_for({ name: row.display_name }), pricingOverrides.hasModelPricingOverride(row))}
             class="table-icon-btn {pricingOverrides.modelPricingButtonClass(pricingOverrides.hasModelPricingOverride(row))}"
@@ -228,7 +242,7 @@ import {
             <Icon icon={CircleDollarSign} class="table-icon-svg" />
           </TableActionButton>
         {/if}
-        {#if rateLimits.rateLimitsEnabled() && rateLimits.rateLimitInspectorModelID(row)}
+        {#if rateLimitsEnabled && rateLimits.rateLimitInspectorModelID(row)}
           <TableActionButton
             label={rateLimits.rateLimitGaugeTitle(row.display_name, rateLimits.rateLimitGaugeClassForModel(row))}
             class="table-icon-btn {rateLimits.rateLimitGaugeClassForModel(row)}"
@@ -239,17 +253,17 @@ import {
         {/if}
         {#if row.provider_name && row.model?.id}
           <TableActionButton
-            label={modelTest.state(row.provider_name, row.model.id)?.running
+            label={modelTestState?.running
               ? m.models_cap_test_running()
               : m.models_cap_test_action()}
             class="table-icon-btn"
-            disabled={Boolean(modelTest.state(row.provider_name, row.model.id)?.running)}
+            disabled={Boolean(modelTestState?.running)}
             onclick={() => modelTest.runTest(row.provider_name, row.model.id)}
           >
             <Icon icon={FlaskConical} class="table-icon-svg" />
           </TableActionButton>
         {/if}
-        {#if virtualModels.virtualModelsAvailable && row.masking_alias && row.masking_alias.name}
+        {#if virtualModelsAvailable && row.masking_alias && row.masking_alias.name}
           <TableActionButton
             label={routingEditLabel}
             class="table-icon-btn table-action-btn-active"
@@ -258,7 +272,7 @@ import {
             <Icon icon={Pencil} class="table-icon-svg" />
           </TableActionButton>
         {/if}
-        {#if virtualModels.virtualModelsAvailable && !row.masking_alias}
+        {#if virtualModelsAvailable && !row.masking_alias}
           <TableActionButton
             label={modelOverrideEditButtonLabel(m.models_model_settings_for({ name: row.display_name }), hasAccessOverride(row.access))}
             class="table-icon-btn {modelOverrideEditButtonClass(hasAccessOverride(row.access))}"
