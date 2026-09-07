@@ -7,13 +7,17 @@ import { flash } from "$lib/stores/flash.svelte.js";
 import * as m from "$lib/paraglide/messages.js";
 import { modelsStore } from "$lib/stores/models.svelte.js";
 import {
+  areAllGroupsExpanded,
   buildDisplayModels,
   buildGlobalScopeRow,
   filterDisplayModels,
   findModelOverrideView,
   groupDisplayModels,
+  isGroupExpanded,
   rowAccessSelector,
   rowIsManaged,
+  toggleAllGroups,
+  toggleGroupOverride,
 } from "./displayRows.js";
 import {
   GLOBAL_OVERRIDE_SELECTOR,
@@ -38,6 +42,43 @@ class VirtualModelsStore {
   aliasError = $state("");
   rowTogglingKey = $state("");
   rowDeletingKey = $state("");
+
+  // ---- Group collapse (issue #14) ----
+  // Two explicit key sets: collapsedGroups forces groups shut, expandedGroups
+  // forces them open; keys absent from both follow defaultGroupExpanded (only
+  // the virtual-model group starts open). Set objects are swapped, never
+  // mutated, so $derived readers re-run. Session-only by design.
+  collapsedGroups = $state(new Set());
+  expandedGroups = $state(new Set());
+
+  isGroupExpanded(key) {
+    return isGroupExpanded(key, this.collapsedGroups, this.expandedGroups);
+  }
+
+  allGroupsExpanded() {
+    return areAllGroupsExpanded(
+      this.filteredDisplayModelGroups,
+      this.collapsedGroups,
+      this.expandedGroups,
+    );
+  }
+
+  toggleGroupExpanded(key) {
+    const next = toggleGroupOverride(
+      key,
+      this.collapsedGroups,
+      this.expandedGroups,
+      !this.isGroupExpanded(key),
+    );
+    this.collapsedGroups = next.collapsedGroups;
+    this.expandedGroups = next.expandedGroups;
+  }
+
+  toggleAllGroupsExpanded(expand) {
+    const next = toggleAllGroups(this.filteredDisplayModelGroups, expand);
+    this.collapsedGroups = next.collapsedGroups;
+    this.expandedGroups = next.expandedGroups;
+  }
 
   // ---- Display rows (derived from the shared model inventory) ----
 
