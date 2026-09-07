@@ -105,3 +105,75 @@ func TestPrepareEmbeddingRequestWithoutSummary(t *testing.T) {
 		t.Fatalf("embedding path attached content %+v, want none", resolver.content)
 	}
 }
+
+
+// tieringResolver answers differently based on whether the route summary is
+// present, simulating an adaptive selector: without the summary it round-robins
+// (middleware resolution), with it it picks the tier model.
+type tieringResolver struct {
+	sawContent *ext.RouteContent
+	calls      int
+}
+
+func (r *tieringResolver) ResolveModel(requested core.RequestedModelSelector) (core.ModelSelector, bool, error) {
+	return core.ModelSelector{Provider: "openai", Model: requested.Model}, true, nil
+}
+
+func (r *tieringResolver) ResolveModelForUserPath(ctx context.Context, requested core.RequestedModelSelector) (core.ModelSelector, bool, error) {
+	r.calls++
+	if content := ext.RouteContentFromContext(ctx); content != nil {
+		r.sawContent = content
+		return core.ModelSelector{Provider: "openai", Model: "tier-picked-model"}, true, nil
+	}
+	return core.ModelSelector{Provider: "openai", Model: requested.Model}, true, nil
+}
+
+// A workflow resolved by the middleware (before the request summary exists)
+// must be re-resolved once PrepareChatRequest attaches the summary, so an
+// adaptive route selector sees the request content on the live path.
+func TestPrepareChatRequestReresolvesMiddlewareWorkflowWithSummary(t *testing.T) {
+	t.Parallel()
+	resolver := &tieringResolver{}
+	o := &InferenceOrchestrator{provider: routableStub{}, modelResolver: resolver}
+	req := &core.ChatRequest{
+		Model:    "smart",
+		Messages: []core.Message{{Role: "user", Content: "analyze this code please"}},
+	}
+	// Simulate the middleware: resolve without a summary and store the workflow.
+	middlewareCtx := context.Background()
+	resolved, _, err := resolver.ResolveModelForUserPath(middlewareCtx, core.NewRequestedModelSelector("smart", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolution := &core.RequestModelResolution{
+		Requested:        core.NewRequestedModelSelector("smart", ""),
+		ResolvedSelector: resolved,
+		AliasApplied:     true,
+	}
+	meta := RequestMeta{
+		Endpoint: core.EndpointDescriptor{Operation: core.OperationChatCompletions},
+		Workflow: &core.Workflow{
+			Mode:       core.ExecutionModeTranslated,
+			Endpoint:   core.EndpointDescriptor{Operation: core.OperationChatCompletions},
+			Resolution: resolution,
+		},
+	}
+
+	prepared, err := o.PrepareChatRequest(context.Background(), req, meta)
+	if err != nil {
+		t.Fatalf("PrepareChatRequest() error = %v", err)
+	}
+	if resolver.calls < 2 {
+		t.Fatalf("resolver called %d times, want re-resolution after summary attach", resolver.calls)
+	}
+	if resolver.sawContent == nil {
+		t.Fatal("re-resolution did not see the route summary")
+	}
+	got := prepared.Workflow.Resolution.ResolvedQualifiedModel()
+	if got != "openai/tier-picked-model" {
+		t.Fatalf("resolved model = %q, want the summary-aware pick openai/tier-picked-model", got)
+	}
+	if req.Model != "tier-picked-model" {
+		t.Fatalf("request model = %q, want patched to tier-picked-model", req.Model)
+	}
+}

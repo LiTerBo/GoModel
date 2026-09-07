@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/enterpilot/gomodel/ext"
 	"github.com/enterpilot/gomodel/internal/core"
 )
 
@@ -192,6 +193,21 @@ func (o *InferenceOrchestrator) ensureTranslatedRequestWorkflow(
 	if resolution != nil && o.modelAuthorizer != nil {
 		if err := o.modelAuthorizer.ValidateModelAccess(ctx, resolution.ResolvedSelector); err != nil {
 			return nil, err
+		}
+	}
+	// The workflow middleware resolves the model before the request body is
+	// parsed, so that resolution ran without the route summary an adaptive
+	// selector needs. With the summary now on the context, re-resolve from the
+	// originally requested selector so complexity-aware selectors see the
+	// request content; a summary-less path (embeddings, admin) is unaffected.
+	if resolution != nil && ext.RouteContentFromContext(ctx) != nil && resolution.AliasApplied {
+		reresolved, rerr := ResolveRequestModelWithAuthorizer(ctx, o.provider, o.modelResolver, o.modelAuthorizer, resolution.Requested)
+		if rerr == nil {
+			resolution = reresolved
+			workflow, err = TranslatedWorkflow(ctx, strings.TrimSpace(requestID), endpoint, resolution, o.workflowPolicyResolver)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if resolution == nil {
