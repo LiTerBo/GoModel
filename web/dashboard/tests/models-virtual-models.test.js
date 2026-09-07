@@ -7,13 +7,18 @@ import assert from "node:assert/strict";
 
 import {
   aliasRowCanRemove,
+  areAllGroupsExpanded,
   buildDisplayModels,
+  defaultGroupExpanded,
   displayRowClass,
   filterDisplayModels,
   groupDisplayModels,
+  isGroupExpanded,
   rowIsManaged,
   rowRedirectCanRemove,
   rowAnchorID,
+  toggleAllGroups,
+  toggleGroupOverride,
 } from "../src/pages/models/displayRows.js";
 import {
   qualifiedModelName,
@@ -1066,4 +1071,123 @@ test("rowAnchorID keeps distinct alias names on distinct DOM ids", () => {
   assert.notEqual(id("foo/bar"), id("foo-bar"));
   assert.match(id("team/cheap"), /^alias-row-[A-Za-z0-9%._~-]+$/);
   assert.equal(rowAnchorID({ is_alias: false, alias: { name: "x" } }), "");
+});
+
+// --- Group collapse (issue #14) ----------------------------------------------
+// Encoding: collapsedGroups is a Set of group keys, expandedGroups a Set of
+// keys that were manually expanded from the collapsed default. A key is
+// expanded when (default && !collapsed.has) || expanded.has. Two explicit
+// sets avoid "filter re-render wipes state" and let virtual-model groups
+// (default-expanded) be collapsed without re-adding provider keys.
+
+test("defaultGroupExpanded expands only the virtual-model group", () => {
+  const groups = groupDisplayModels(
+    display(
+      [
+        { provider_name: "alpha", provider_type: "test", model: { id: "model-a", object: "model" } },
+        { provider_name: "zulu", provider_type: "test", model: { id: "model-z", object: "model" } },
+      ],
+      [{ name: "smart", target_provider: "zulu", target_model: "model-z", enabled: true, valid: true }],
+      { activeCategory: "all" },
+    ),
+    [],
+    [],
+  );
+
+  for (const group of groups) {
+    assert.equal(defaultGroupExpanded(group.key), group.key === "virtual-model-group");
+  }
+});
+
+test("isGroupExpanded resolves the double-set encoding", () => {
+  const collapsed = new Set(["p-alpha"]);
+  const expanded = new Set(["p-zulu"]);
+
+  assert.equal(isGroupExpanded("virtual-model-group", collapsed, expanded), true);
+  assert.equal(isGroupExpanded("p-alpha", collapsed, expanded), false);
+  // Unknown key falls back to its default (expanded for VM group, collapsed
+  // for providers) instead of throwing when a group first renders.
+  assert.equal(isGroupExpanded("p-brand-new", collapsed, expanded), false);
+  assert.equal(isGroupExpanded("virtual-model-group", new Set(), new Set()), true);
+  assert.equal(isGroupExpanded("p-alpha", new Set(), new Set()), false);
+});
+
+test("toggleGroupOverride writes the requested state and never mixes sets", () => {
+  const collapsedInput = new Set();
+  const expandedInput = new Set(["virtual-model-group"]);
+
+  // Collapsing the default-expanded VM group lands in collapsedGroups.
+  let state = toggleGroupOverride("virtual-model-group", collapsedInput, expandedInput, false);
+  assert.deepEqual(Array.from(state.collapsedGroups), ["virtual-model-group"]);
+  assert.deepEqual(Array.from(state.expandedGroups), []);
+  // Inputs are not mutated: the store reassigns $state instead of relying on
+  // in-place Set changes, and callers may reuse the original sets.
+  assert.deepEqual(Array.from(expandedInput), ["virtual-model-group"]);
+  assert.notEqual(state.expandedGroups, expandedInput);
+
+  // Expanding a default-collapsed provider lands in expandedGroups.
+  state = toggleGroupOverride("p-alpha", new Set(), new Set(), true);
+  assert.deepEqual(Array.from(state.expandedGroups), ["p-alpha"]);
+  assert.deepEqual(Array.from(state.collapsedGroups), []);
+
+  // Re-collapsing clears the stale expand record (a key never sits in both).
+  state = toggleGroupOverride("p-alpha", new Set(), new Set(["p-alpha"]), false);
+  assert.deepEqual(Array.from(state.expandedGroups), []);
+  assert.deepEqual(Array.from(state.collapsedGroups), ["p-alpha"]);
+
+  // Re-expanding clears the stale collapse record.
+  state = toggleGroupOverride("virtual-model-group", new Set(["virtual-model-group"]), new Set(), true);
+  assert.deepEqual(Array.from(state.collapsedGroups), []);
+  assert.deepEqual(Array.from(state.expandedGroups), ["virtual-model-group"]);
+});
+
+test("toggleAllGroups writes explicit state for every current key", () => {
+  const groups = groupDisplayModels(
+    display(
+      [
+        { provider_name: "alpha", provider_type: "test", model: { id: "model-a", object: "model" } },
+        { provider_name: "zulu", provider_type: "test", model: { id: "model-z", object: "model" } },
+      ],
+      [{ name: "smart", target_provider: "zulu", target_model: "model-z", enabled: true, valid: true }],
+      { activeCategory: "all" },
+    ),
+    [],
+    [],
+  );
+  const allKeys = ["provider-group:alpha", "provider-group:zulu", "virtual-model-group"];
+
+  // Expand-all: every current key recorded as expanded, nothing collapsed.
+  let state = toggleAllGroups(groups, true);
+  assert.deepEqual(Array.from(state.collapsedGroups), []);
+  assert.deepEqual(Array.from(state.expandedGroups).sort(), allKeys.sort());
+  for (const group of groups) {
+    assert.equal(isGroupExpanded(group.key, state.collapsedGroups, state.expandedGroups), true);
+  }
+
+  // Collapse-all: every current key recorded as collapsed, nothing expanded.
+  state = toggleAllGroups(groups, false);
+  assert.deepEqual(Array.from(state.collapsedGroups).sort(), allKeys.sort());
+  assert.deepEqual(Array.from(state.expandedGroups), []);
+  for (const group of groups) {
+    assert.equal(isGroupExpanded(group.key, state.collapsedGroups, state.expandedGroups), false);
+  }
+});
+
+test("areAllGroupsExpanded reports mixed state so the button can pick", () => {
+  const groups = groupDisplayModels(
+    display(
+      [
+        { provider_name: "alpha", provider_type: "test", model: { id: "model-a", object: "model" } },
+        { provider_name: "zulu", provider_type: "test", model: { id: "model-z", object: "model" } },
+      ],
+      [],
+    ),
+    [],
+    [],
+  );
+
+  // Default: providers collapsed, no VM group → the toolbar offers expand.
+  assert.equal(areAllGroupsExpanded(groups, new Set(), new Set()), false);
+  const expanded = toggleAllGroups(groups, true);
+  assert.equal(areAllGroupsExpanded(groups, expanded.collapsedGroups, expanded.expandedGroups), true);
 });

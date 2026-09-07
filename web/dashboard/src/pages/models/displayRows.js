@@ -365,7 +365,7 @@ export function groupDisplayModels(rows, models, modelOverrideViews) {
     );
   if (virtualRows.length > 0) {
     result.unshift({
-      key: "virtual-model-group",
+      key: VIRTUAL_MODEL_GROUP_KEY,
       is_virtual_models: true,
       provider_name: "",
       provider_type: "",
@@ -378,6 +378,69 @@ export function groupDisplayModels(rows, models, modelOverrideViews) {
     });
   }
   return result;
+}
+
+// --- Group collapse state (issue #14) ----------------------------------------
+// Encoding: two explicit key sets — collapsedGroups holds keys forced shut,
+// expandedGroups keys forced open. A group is expanded when its key is in
+// expandedGroups, or absent from both and defaultGroupExpanded(key) says so.
+// Pure functions (new sets in, inputs untouched) so the Svelte store can
+// reassign $state and node:test can exercise the logic directly.
+
+export const VIRTUAL_MODEL_GROUP_KEY = "virtual-model-group";
+
+export function defaultGroupExpanded(key) {
+  return key === VIRTUAL_MODEL_GROUP_KEY;
+}
+
+export function isGroupExpanded(key, collapsedGroups, expandedGroups) {
+  if (expandedGroups && expandedGroups.has(key)) {
+    return true;
+  }
+  if (collapsedGroups && collapsedGroups.has(key)) {
+    return false;
+  }
+  return defaultGroupExpanded(key);
+}
+
+export function toggleGroupOverride(key, collapsedGroups, expandedGroups, expand) {
+  const nextCollapsed = new Set(collapsedGroups || []);
+  const nextExpanded = new Set(expandedGroups || []);
+  if (expand) {
+    nextExpanded.add(key);
+    nextCollapsed.delete(key);
+  } else {
+    nextCollapsed.add(key);
+    nextExpanded.delete(key);
+  }
+  return { collapsedGroups: nextCollapsed, expandedGroups: nextExpanded };
+}
+
+export function toggleAllGroups(groups, expand) {
+  const nextCollapsed = new Set();
+  const nextExpanded = new Set();
+  for (const group of Array.isArray(groups) ? groups : []) {
+    const key = group && group.key;
+    if (!key) {
+      continue;
+    }
+    if (expand) {
+      nextExpanded.add(key);
+    } else {
+      nextCollapsed.add(key);
+    }
+  }
+  return { collapsedGroups: nextCollapsed, expandedGroups: nextExpanded };
+}
+
+export function areAllGroupsExpanded(groups, collapsedGroups, expandedGroups) {
+  const safeGroups = Array.isArray(groups) ? groups : [];
+  if (safeGroups.length === 0) {
+    return false;
+  }
+  return safeGroups.every((group) =>
+    isGroupExpanded(group && group.key, collapsedGroups, expandedGroups),
+  );
 }
 
 export function buildGlobalScopeRow(models, modelOverrideViews) {
