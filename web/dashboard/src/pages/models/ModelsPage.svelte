@@ -15,6 +15,7 @@
   import { virtualModelEditor } from "./virtualModelEditor.svelte.js";
   import { pricingOverrides } from "./pricingOverrides.svelte.js";
   import { capabilityErrors } from "./capabilityErrors.svelte.js";
+  import { FoldVertical, UnfoldVertical } from "lucide";
   import ModelTable from "./ModelTable.svelte";
   import VirtualModelEditor from "./VirtualModelEditor.svelte";
   import PricingOverrideEditor from "./PricingOverrideEditor.svelte";
@@ -55,6 +56,15 @@
   // here (the page's own template tracking is reliable) and hand them to
   // ModelTable as a reactive prop instead.
   const modelGroups = $derived(virtualModels.filteredDisplayModelGroups);
+
+  // Collapse state bridged as a plain snapshot for ModelTable (same Svelte 5
+  // cross-module tracking caveat as modelGroups above). Sets are swapped
+  // wholesale by the store, so the snapshot identity changes on every toggle.
+  const modelCollapse = $derived({
+    collapsed: virtualModels.collapsedGroups,
+    expanded: virtualModels.expandedGroups,
+  });
+  const allGroupsExpanded = $derived(virtualModels.allGroupsExpanded());
 
   $effect(() => {
     const total = virtualModels.filteredDisplayModels.length;
@@ -135,6 +145,25 @@
         {#if virtualModels.virtualModelsAvailable}
           <button
             type="button"
+            class="btn btn-with-icon"
+            aria-label={allGroupsExpanded
+              ? m.models_collapse_all()
+              : m.models_expand_all()}
+            title={allGroupsExpanded
+              ? m.models_collapse_all()
+              : m.models_expand_all()}
+            onclick={() => virtualModels.toggleAllGroupsExpanded(!allGroupsExpanded)}
+          >
+            <Icon
+              icon={allGroupsExpanded ? FoldVertical : UnfoldVertical}
+              class="alias-create-icon"
+            />
+            <span>{allGroupsExpanded
+              ? m.models_collapse_all()
+              : m.models_expand_all()}</span>
+          </button>
+          <button
+            type="button"
             class="btn btn-primary btn-with-icon alias-create-btn"
             aria-label={m.models_new_virtual_label()}
             title={m.models_alias()}
@@ -156,7 +185,7 @@
   <PricingOverrideEditor />
 
   {#if virtualModels.displayModels.length > 0 || modelsStore.filter}
-    <ModelTable groups={modelGroups} />
+    <ModelTable groups={modelGroups} collapse={modelCollapse} />
   {/if}
 
   {#if virtualModels.displayModels.length === 0 && !modelsStore.loading && !authError && !modelsStore.filter && (modelsStore.activeCategory === "all" || !modelsStore.activeCategory)}

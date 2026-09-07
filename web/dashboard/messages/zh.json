@@ -1297,6 +1297,8 @@
   "models_category_video": "视频",
   "models_category_utility": "工具",
   "models_virtual_models_group": "虚拟模型",
+  "models_expand_all": "展开全部分组",
+  "models_collapse_all": "折叠全部分组",
   "models_global_scope_subject": "所有供应商和模型",
   "models_disabled_default": "默认禁用",
   "models_allowed_for": "允许用于 {paths}",

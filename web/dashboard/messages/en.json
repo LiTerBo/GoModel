@@ -1357,6 +1357,8 @@
   "models_category_video": "Video",
   "models_category_utility": "Utility",
   "models_virtual_models_group": "Virtual models",
+  "models_expand_all": "Expand all groups",
+  "models_collapse_all": "Collapse all groups",
   "models_global_scope_subject": "all providers and models",
   "models_disabled_default": "Disabled by default",
   "models_allowed_for": "Allowed for {paths}",

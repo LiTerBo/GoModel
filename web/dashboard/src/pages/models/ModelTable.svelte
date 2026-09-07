@@ -9,15 +9,16 @@
   import { pricingOverrides } from "./pricingOverrides.svelte.js";
   import { rateLimits } from "$pages/rate-limits/rateLimits.svelte.js";
   import {
-  hasAccessOverride,
-  modelOverrideEditButtonClass,
-  modelOverrideEditButtonLabel,
-} from "./displayRows.js";
+    hasAccessOverride,
+    isGroupExpanded,
+    modelOverrideEditButtonClass,
+    modelOverrideEditButtonLabel,
+  } from "./displayRows.js";
   import AccessToggle from "./AccessToggle.svelte";
   import ModelGlobalActions from "./ModelGlobalActions.svelte";
   import ModelRow from "./ModelRow.svelte";
   import { categoryColumns, categoryColspan } from "./categoryColumns.js";
-  import { CircleDollarSign, Gauge, Pencil } from "lucide";
+  import { ChevronDown, ChevronRight, CircleDollarSign, Gauge, Pencil } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
 
   const category = $derived(modelsStore.activeCategory || "all");
@@ -28,13 +29,25 @@
   // re-track a child template's direct read of a cross-module singleton's
   // $derived value, so ModelsPage bridges filteredDisplayModelGroups.
   // The remaining reads are bridged for the same cross-module reason.
-  let { groups } = $props();
+  // `collapse` bridges the group-collapse sets the same way (issue #14).
+  let { groups, collapse } = $props();
   const pricingOverridesAvailable = $derived(
     pricingOverrides.modelPricingOverridesAvailable,
   );
   const rateLimitsEnabled = $derived(rateLimits.rateLimitsEnabled());
   const virtualModelsAvailable = $derived(virtualModels.virtualModelsAvailable);
 
+  function groupExpanded(group) {
+    return isGroupExpanded(group.key, collapse.collapsed, collapse.expanded);
+  }
+
+  function groupExpanderLabel(group, expanded) {
+    return (
+      group.display_name +
+      ", " +
+      (expanded ? m.common_action_collapse() : m.common_action_expand())
+    );
+  }
 </script>
 
 <div class="table-wrapper">
@@ -59,6 +72,19 @@
             <div class="provider-group-header">
               <div class="provider-group-meta">
                 <div class="provider-group-title">
+                  <button
+                    type="button"
+                    class="provider-group-expander"
+                    aria-expanded={groupExpanded(group)}
+                    title={groupExpanderLabel(group, groupExpanded(group))}
+                    aria-label={groupExpanderLabel(group, groupExpanded(group))}
+                    onclick={() => virtualModels.toggleGroupExpanded(group.key)}
+                  >
+                    <Icon
+                      icon={groupExpanded(group) ? ChevronDown : ChevronRight}
+                      class="provider-group-expander-svg"
+                    />
+                  </button>
                   <span class="mono font-size-md">{group.display_name}</span>
                   {#if group.type_label}
                     <span class="provider-group-type">{"(" + group.type_label + ")"}</span>
@@ -106,9 +132,11 @@
             </div>
           </td>
         </tr>
-        {#each group.rows as row (row.key)}
-          <ModelRow {row} {columns} />
-        {/each}
+        {#if groupExpanded(group)}
+          {#each group.rows as row (row.key)}
+            <ModelRow {row} {columns} />
+          {/each}
+        {/if}
       </tbody>
     {/each}
   </table>
@@ -144,6 +172,30 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+  }
+
+  .provider-group-expander {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .provider-group-expander:hover {
+    background: var(--bg-surface-hover);
+    color: var(--text);
+  }
+
+  .provider-group-expander-svg {
+    width: 14px;
+    height: 14px;
   }
 
   .provider-group-type, .provider-group-count, .provider-group-summary {
