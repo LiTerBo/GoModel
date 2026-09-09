@@ -31,7 +31,31 @@ test("capabilityIconStates: hidden when the capability is absent or false", () =
   assert.equal(vision.state, "declared");
 });
 
-test("capabilityIconStates: confirmed when the source is test or observed", () => {
+test("capabilityIconStates: confirmed only when the capability value is true despite a confirmed source", () => {
+  // Regression: an operator-confirmed false (explicitly unsupported)
+  // must not light up the icon — only the stored source leads to
+  // "confirmed" even when the boolean flag is false.
+  const states = capabilityIconStates(
+    row(
+      { function_calling: false, vision: false },
+      { function_calling: "test", vision: "observed" },
+    ),
+  );
+  assert.equal(
+    states.find((s) => s.key === "function_calling"),
+    undefined,
+    "function_calling=false + test source must hide the icon",
+  );
+  assert.equal(
+    states.find((s) => s.key === "vision"),
+    undefined,
+    "vision=false + observed source must hide the icon",
+  );
+  // Category-backed icons (chat, embeddings) are unaffected — no
+  // boolean flag to check against; the source alone suffices.
+});
+
+test("capabilityIconStates: confirmed when the capability value and source both agree", () => {
   const states = capabilityIconStates(
     row(
       { function_calling: true, vision: true },

@@ -52,7 +52,16 @@ export function stateOf(metadata, capabilityKey) {
   if (!metadata) return "hidden";
   const sources = sourcesOf(metadata);
   const source = sources[capabilityKey];
-  if (source && CONFIRMED_SOURCES.has(source)) return "confirmed";
+  if (source && CONFIRMED_SOURCES.has(source)) {
+    // Verify the capability value is actually true before showing
+    // "confirmed". An operator-confirmed false (explicitly unsupported)
+    // must not light up the icon.
+    const spec = CAPABILITY_ORDER.find((c) => c.key === capabilityKey);
+    if (spec?.capability && metadata.capabilities?.[spec.capability] !== true) {
+      return "hidden";
+    }
+    return "confirmed";
+  }
 
   const spec = CAPABILITY_ORDER.find((c) => c.key === capabilityKey);
   if (spec?.capability) {
