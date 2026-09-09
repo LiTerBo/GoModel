@@ -1,6 +1,9 @@
 <script>
   // Enable/restrict/disable switch shared by model rows, alias rows, provider
-  // groups, and the global scope.
+  // groups, and the global scope. Icon-only (phase F): the state text is
+  // dropped — the track/thumb pair plus the aria-label/title carry the
+  // semantics, matching the compact icon-action convention of the actions
+  // column.
   import { virtualModels } from "./virtualModels.svelte.js";
 
   let { row } = $props();
@@ -11,7 +14,6 @@
   const rowToggleEnabled = $derived(virtualModels.rowToggleEnabled(row));
   const rowToggleRestricted = $derived(virtualModels.rowToggleRestricted(row));
   const rowToggleAriaLabel = $derived(virtualModels.rowToggleAriaLabel(row));
-  const rowToggleLabel = $derived(virtualModels.rowToggleLabel(row));
   const rowTogglingKey = $derived(virtualModels.rowTogglingKey);
   const virtualModelsAvailable = $derived(virtualModels.virtualModelsAvailable);
 </script>
@@ -23,8 +25,8 @@
   class:restricted={rowToggleRestricted}
   disabled={rowTogglingKey === row.key || !virtualModelsAvailable}
   aria-label={rowToggleAriaLabel}
+  title={rowToggleAriaLabel}
   onclick={() => virtualModels.toggleRowEnabled(row)}
 >
   <span class="alias-toggle-track"><span class="alias-toggle-thumb"></span></span>
-  <span>{rowToggleLabel}</span>
 </button>

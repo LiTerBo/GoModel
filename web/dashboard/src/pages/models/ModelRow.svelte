@@ -34,7 +34,6 @@ import {
   } from "./modelTestPanel.js";
   import {
     AlertTriangle,
-    BadgeCheck,
     Box,
     CircleDollarSign,
     Eye,
@@ -70,10 +69,8 @@ import {
   const pricing = $derived(pricingOverrides.modelRowPricing(row));
   // Capability provenance (J-1): which verification streams confirmed this
   // real model's capabilities — offline probes ("test") and/or audit-log
-  // traffic mining ("observed"). Static inference needs no badge.
-  const capSources = $derived(row.model?.metadata?.capability_sources ?? {});
-  const hasTestedCaps = $derived(Object.values(capSources).some((s) => s === "test"));
-  const hasObservedCaps = $derived(Object.values(capSources).some((s) => s === "observed"));
+  // traffic mining ("observed"). The per-capability icon strip renders this
+  // three-way (confirmed/declared/hidden), so no separate badge is needed.
   const runtimeCapError = $derived(
     row.is_alias ? null : capabilityErrors.state(row.provider_name, row.model?.id),
   );
@@ -274,18 +271,6 @@ import {
             {/each}
           </span>
         {/if}
-        {#if hasTestedCaps}
-          <span class="alias-kind-badge" role="img" aria-label={m.models_cap_src_title_test()} title={m.models_cap_src_title_test()}>
-            <Icon icon={BadgeCheck} class="model-kind-icon-svg" />
-            {m.models_cap_src_test()}
-          </span>
-        {/if}
-        {#if hasObservedCaps}
-          <span class="alias-kind-badge" role="img" aria-label={m.models_cap_src_title_observed()} title={m.models_cap_src_title_observed()}>
-            <Icon icon={BadgeCheck} class="model-kind-icon-svg" />
-            {m.models_cap_src_observed()}
-          </span>
-        {/if}
         {#if hasCapabilityError}
           <span
             class="alias-kind-badge model-warn-badge"
@@ -385,6 +370,7 @@ import {
             label={modelTestState?.running
               ? m.models_cap_test_running()
               : m.models_cap_test_action()}
+            title={m.models_cap_test_action_title()}
             class="table-icon-btn {panelOpen ? 'table-action-btn-active' : ''}"
             disabled={Boolean(modelTestState?.running)}
             onclick={runAndOpen}
