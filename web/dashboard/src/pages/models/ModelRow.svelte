@@ -25,7 +25,22 @@ import {
   import AccessToggle from "./AccessToggle.svelte";
   import { modelTest } from "./modelTest.svelte.js";
   import { capabilityErrors } from "./capabilityErrors.svelte.js";
-  import { AlertTriangle, BadgeCheck, CircleDollarSign, FlaskConical, Gauge, Pencil, ShieldCheck, Split, Trash2 } from "lucide";
+  import {
+    AlertTriangle,
+    BadgeCheck,
+    Box,
+    CircleDollarSign,
+    Eye,
+    FlaskConical,
+    Gauge,
+    MessageSquare,
+    Pencil,
+    ShieldCheck,
+    Split,
+    Trash2,
+    Wrench,
+  } from "lucide";
+  import { capabilityIconStates, capabilityIconTitle } from "./capabilityIcons.js";
   import * as m from "$lib/paraglide/messages.js";
 
   // columns: the active category's column spec from categoryColumns.js
@@ -58,6 +73,33 @@ import {
   const hasCapabilityError = $derived(
     Boolean(row.model?.metadata?.capability_error) || Boolean(runtimeCapError),
   );
+  // Capability icon strip (phase D): one icon per capability, three states
+  // (confirmed / declared / hidden). Aliases have no capability metadata.
+  const capabilityIcons = $derived(capabilityIconStates(row));
+  const capabilityIconSpec = {
+    chat: { icon: MessageSquare },
+    embeddings: { icon: Box },
+    function_calling: { icon: Wrench },
+    vision: { icon: Eye },
+  };
+  const capabilityIconLabels = {
+    capability: (key) =>
+      ({
+        chat: m.models_cap_icon_chat(),
+        embeddings: m.models_cap_icon_embeddings(),
+        function_calling: m.models_cap_icon_function_calling(),
+        vision: m.models_cap_icon_vision(),
+      })[key] ?? key,
+    confirmedTest: () => m.models_cap_state_confirmed_test(),
+    confirmedObserved: () => m.models_cap_state_confirmed_observed(),
+    declared: () => m.models_cap_state_declared(),
+  };
+  // capabilitySourcesOf re-reads provenance for the title suffix
+  // (confirmed states distinguish probe vs traffic verification).
+  function capabilityIconTooltip(entry) {
+    const source = row.model?.metadata?.capability_sources?.[entry.key];
+    return capabilityIconTitle(entry.key, entry.state, capabilityIconLabels, source);
+  }
   const configuredSlowdown = $derived(
     row.is_alias
       ? row.alias && row.alias.slowdown
@@ -144,6 +186,26 @@ import {
         {/if}
         {#if rowIsManaged(row)}
           <span class="alias-kind-badge" title={m.models_managed_config()}>{m.models_config()}</span>
+        {/if}
+        {#if capabilityIcons.length > 0}
+          <span class="capability-icon-row">
+            {#each capabilityIcons as entry (entry.key)}
+              {@const spec = capabilityIconSpec[entry.key]}
+              <span
+                class="capability-icon capability-icon-{entry.state}"
+                role="img"
+                aria-label={capabilityIconTooltip(entry)}
+                title={capabilityIconTooltip(entry)}
+              >
+                <Icon icon={spec.icon} class="model-kind-icon-svg" />
+                {#if entry.state === "confirmed"}
+                  <svg class="capability-icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5"></path>
+                  </svg>
+                {/if}
+              </span>
+            {/each}
+          </span>
         {/if}
         {#if hasTestedCaps}
           <span class="alias-kind-badge" role="img" aria-label={m.models_cap_src_title_test()} title={m.models_cap_src_title_test()}>
@@ -342,6 +404,57 @@ import {
   .model-kind-icon :global(.model-kind-icon-svg) {
     width: 14px;
     height: 14px;
+  }
+
+  /* Capability icon strip (phase D): one icon per capability with three
+     provenance states. Compact and icon-only per the UI conventions; the
+     tooltip carries the capability name and verification wording. */
+  .capability-icon-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .capability-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    border-radius: 999px;
+  }
+
+  .capability-icon :global(.model-kind-icon-svg) {
+    width: 12px;
+    height: 12px;
+  }
+
+  /* Confirmed: accent-filled, plus a tiny corner checkmark. */
+  .capability-icon-confirmed {
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+
+  .capability-icon-confirmed :global(.capability-icon-check) {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 9px;
+    height: 9px;
+    padding: 1px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  /* Declared: outlined and dimmed — present but not verified. */
+  .capability-icon-declared {
+    border: 1px solid color-mix(in srgb, var(--text-muted) 45%, transparent);
+    color: var(--text-muted);
+    opacity: 0.75;
   }
 
   .model-row-actions {
