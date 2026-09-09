@@ -54,7 +54,7 @@ func chatRequestFor(model string, tools bool) *core.ChatRequest {
 	if tools {
 		req.Messages = []core.Message{{Role: "user", Content: probeToolPrompt}}
 		req.Tools = weatherTool
-		req.ToolChoice = "auto"
+		req.ToolChoice = "required"
 	}
 	return req
 }

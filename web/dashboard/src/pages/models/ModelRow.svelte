@@ -6,6 +6,7 @@
   import { virtualModels } from "./virtualModels.svelte.js";
   import { virtualModelEditor } from "./virtualModelEditor.svelte.js";
   import { pricingOverrides } from "./pricingOverrides.svelte.js";
+  import { modelsStore } from "$lib/stores/models.svelte.js";
   import { rateLimits } from "$pages/rate-limits/rateLimits.svelte.js";
   import {
   aliasRowCanRemove,
@@ -162,6 +163,7 @@ import {
     const outcome = await modelTest.confirmFromProbes(row.provider_name, row.model.id);
     if (outcome?.ok !== false) {
       closeResultPanel();
+      void modelsStore.fetchModels();
     }
   }
   const configuredSlowdown = $derived(
