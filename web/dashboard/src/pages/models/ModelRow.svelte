@@ -26,6 +26,13 @@ import {
   import { modelTest } from "./modelTest.svelte.js";
   import { capabilityErrors } from "./capabilityErrors.svelte.js";
   import {
+    panelKey,
+    isPanelOpen,
+    togglePanel,
+    closePanel,
+    runnableCaps,
+  } from "./modelTestPanel.js";
+  import {
     AlertTriangle,
     BadgeCheck,
     Box,
@@ -99,6 +106,66 @@ import {
   function capabilityIconTooltip(entry) {
     const source = row.model?.metadata?.capability_sources?.[entry.key];
     return capabilityIconTitle(entry.key, entry.state, capabilityIconLabels, source);
+  }
+
+  // Inline test-result panel (phase E): the panel opens when the operator
+  // runs a test (or toggles the flask button) and shows one row per probe
+  // with its verdict, latency, and detail. State is per-row via a Set of
+  // keys — the group-collapse encoding.
+  let openPanels = $state(new Set());
+  const rowPanelKey = $derived(
+    row.is_alias ? null : panelKey(row.provider_name, row.model?.id),
+  );
+  const panelOpen = $derived(rowPanelKey !== null && isPanelOpen(openPanels, rowPanelKey));
+  const testRun = $derived(modelTestState);
+  const probeRows = $derived(Array.isArray(testRun?.results) ? testRun.results : []);
+  const confirmableCaps = $derived(runnableCaps(testRun?.results));
+  const canConfirm = $derived(
+    !row.is_alias &&
+      !testRun?.running &&
+      !testRun?.confirming &&
+      probeRows.length > 0 &&
+      !testRun?.confirmed,
+  );
+  const probeLabels = {
+    chat: () => m.models_cap_probe_chat(),
+    embeddings: () => m.models_cap_probe_embeddings(),
+    function_calling: () => m.models_cap_probe_function_calling(),
+  };
+  // Elapsed-seconds counter while a run is in flight (E-5): one interval per
+  // open+running panel, torn down when the run completes or the panel closes.
+  let elapsedSeconds = $state(0);
+  $effect(() => {
+    if (!panelOpen || !testRun?.running) {
+      elapsedSeconds = 0;
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+    }, 1000);
+    return () => clearInterval(timer);
+  });
+  function toggleResultPanel() {
+    if (rowPanelKey === null) return;
+    openPanels = togglePanel(openPanels, rowPanelKey);
+  }
+  function closeResultPanel() {
+    if (rowPanelKey === null) return;
+    openPanels = closePanel(openPanels, rowPanelKey);
+  }
+  async function runAndOpen() {
+    toggleResultPanel();
+    if (rowPanelKey !== null && !testRun?.running) {
+      await modelTest.runTest(row.provider_name, row.model.id);
+    }
+  }
+  async function confirmFromPanel() {
+    if (rowPanelKey === null) return;
+    const outcome = await modelTest.confirmFromProbes(row.provider_name, row.model.id);
+    if (outcome?.ok !== false) {
+      closeResultPanel();
+    }
   }
   const configuredSlowdown = $derived(
     row.is_alias
@@ -318,9 +385,9 @@ import {
             label={modelTestState?.running
               ? m.models_cap_test_running()
               : m.models_cap_test_action()}
-            class="table-icon-btn"
+            class="table-icon-btn {panelOpen ? 'table-action-btn-active' : ''}"
             disabled={Boolean(modelTestState?.running)}
-            onclick={() => modelTest.runTest(row.provider_name, row.model.id)}
+            onclick={runAndOpen}
           >
             <Icon icon={FlaskConical} class="table-icon-svg" />
           </TableActionButton>
@@ -347,6 +414,64 @@ import {
     {/if}
   </td>
 </tr>
+{#if panelOpen}
+  <tr class="capability-test-panel-row">
+    <td colspan={99}>
+      <div class="capability-test-panel">
+        <div class="capability-test-panel-head">
+          <span class="capability-test-panel-title">{m.models_cap_panel_title()}</span>
+          {#if testRun?.running}
+            <span class="capability-test-panel-running">
+              {m.models_cap_test_running()} {elapsedSeconds > 0 ? `${elapsedSeconds}s` : ""}
+            </span>
+          {:else if testRun?.error}
+            <span class="capability-test-panel-error">{testRun.error}</span>
+          {:else if testRun?.confirmed}
+            <span class="capability-test-panel-confirmed">✓ {m.models_cap_panel_confirmed()}</span>
+          {/if}
+          <button
+            type="button"
+            class="capability-test-panel-close"
+            aria-label={m.common_action_close()}
+            onclick={closeResultPanel}
+          >×</button>
+        </div>
+        {#if probeRows.length === 0 && !testRun?.running}
+          <div class="capability-test-panel-empty">{m.models_cap_panel_empty()}</div>
+        {:else}
+          <ul class="capability-test-probes">
+            {#each probeRows as probe (probe.probe)}
+              <li class="capability-test-probe capability-test-probe-{probe.verdict}">
+                <span class="capability-test-probe-name">{probe.probe in probeLabels ? probeLabels[probe.probe]() : probe.probe}</span>
+                <span class="capability-test-probe-verdict">
+                  {probe.verdict === "pass" ? `✓ ${m.models_cap_panel_verdict_pass()}` : `△ ${m.models_cap_panel_verdict_inconclusive()}`}
+                </span>
+                {#if probe.latency_ms != null}
+                  <span class="capability-test-probe-latency mono">{probe.latency_ms}ms</span>
+                {/if}
+                {#if probe.detail}
+                  <span class="capability-test-probe-detail">{probe.detail}</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if canConfirm}
+          <div class="capability-test-panel-actions">
+            <button
+              type="button"
+              class="btn btn-primary capability-test-confirm-btn"
+              disabled={testRun?.confirming || confirmableCaps.length === 0}
+              onclick={confirmFromPanel}
+            >
+              {testRun?.confirming ? m.models_cap_panel_confirming() : m.models_cap_panel_confirm()}
+            </button>
+          </div>
+        {/if}
+      </div>
+    </td>
+  </tr>
+{/if}
 
 <style>
   .model-name-cell {
@@ -455,6 +580,118 @@ import {
     border: 1px solid color-mix(in srgb, var(--text-muted) 45%, transparent);
     color: var(--text-muted);
     opacity: 0.75;
+  }
+
+  /* Inline test-result panel (phase E): a full-width row under the model,
+     mirroring the provider-group banding. */
+  .capability-test-panel-row > td {
+    padding: 0 12px 12px;
+    background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+  }
+
+  .capability-test-panel {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .capability-test-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .capability-test-panel-title {
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .capability-test-panel-running {
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .capability-test-panel-error {
+    font-size: 12px;
+    color: var(--danger);
+  }
+
+  .capability-test-panel-confirmed {
+    font-size: 12px;
+    color: var(--success, var(--accent));
+  }
+
+  .capability-test-panel-close {
+    appearance: none;
+    margin-left: auto;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+
+  .capability-test-panel-close:hover {
+    color: var(--foreground, var(--text));
+  }
+
+  .capability-test-panel-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .capability-test-probes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .capability-test-probe {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12px;
+    flex-wrap: wrap;
+  }
+
+  .capability-test-probe-name {
+    min-width: 90px;
+    font-weight: 500;
+  }
+
+  .capability-test-probe-pass .capability-test-probe-verdict {
+    color: var(--success, var(--accent));
+  }
+
+  .capability-test-probe-inconclusive .capability-test-probe-verdict {
+    color: var(--warning, var(--text-muted));
+  }
+
+  .capability-test-probe-latency {
+    color: var(--text-muted);
+  }
+
+  .capability-test-probe-detail {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .capability-test-panel-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .capability-test-confirm-btn {
+    font-size: 12px;
+    padding: 4px 12px;
   }
 
   .model-row-actions {
