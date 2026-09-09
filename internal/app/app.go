@@ -19,6 +19,7 @@ import (
 	"github.com/enterpilot/gomodel/internal/authkeys"
 	"github.com/enterpilot/gomodel/internal/batch"
 	"github.com/enterpilot/gomodel/internal/budget"
+	"github.com/enterpilot/gomodel/internal/capability"
 	"github.com/enterpilot/gomodel/internal/conversationstore"
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/filestore"
@@ -60,6 +61,7 @@ type App struct {
 	mcpGateway          *mcpgateway.Result
 	providerCredentials *providers.CredentialsResult
 	pricingOverrides    *pricingoverrides.Result
+	capabilities        *capability.Result
 	authKeys            *authkeys.Result
 	users               *users.Result
 	guardrails          *guardrails.Result

@@ -16,6 +16,7 @@ import (
 	"github.com/enterpilot/gomodel/internal/auditlog"
 	"github.com/enterpilot/gomodel/internal/authkeys"
 	"github.com/enterpilot/gomodel/internal/budget"
+	"github.com/enterpilot/gomodel/internal/capability"
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/guardrails"
 	"github.com/enterpilot/gomodel/internal/live"
@@ -59,6 +60,9 @@ type Handler struct {
 	quotaTemplates      bool
 	modelTest           ModelTestAdmin
 	modelTestResults    *modelTestStore
+	// capabilities persists operator-confirmed capability verdicts before the
+	// in-memory registry merge; nil keeps the registry-only historical path.
+	capabilities capability.Confirmer
 
 	mutationMu sync.Mutex
 	pricingMu  sync.Mutex
@@ -297,6 +301,16 @@ func WithModelTest(adapter ModelTestAdmin) Option {
 	return func(h *Handler) {
 		h.modelTest = adapter
 		h.modelTestResults = newModelTestStore()
+	}
+}
+
+// WithCapabilityConfirmer wires the durable capability confirmation channel
+// (see internal/capability). When set, operator confirmations persist before
+// the in-memory registry merge, so they survive restarts; when nil the
+// registry-only historical path applies.
+func WithCapabilityConfirmer(confirmer capability.Confirmer) Option {
+	return func(h *Handler) {
+		h.capabilities = confirmer
 	}
 }
 

@@ -46,29 +46,30 @@ const (
 // compile error rather than a silently uncovered subsystem. The values double
 // as the identifiers in shutdown log and error messages.
 const (
-	subsystemLive                = "live broker"
-	subsystemStorage             = "storage"
-	subsystemRuntimeSettings     = "runtime settings"
-	subsystemProviders           = "providers"
-	subsystemAudit               = "audit"
-	subsystemUsage               = "usage"
-	subsystemBudgets             = "budgets"
-	subsystemRateLimits          = "rate limits"
-	subsystemBatch               = "batch store"
-	subsystemFileStore           = "file store"
-	subsystemResponseStore       = "response store"
-	subsystemConversationStore   = "conversation store"
-	subsystemProviderCredentials = "provider credentials"
-	subsystemVirtualModels       = "virtual models"
-	subsystemTagging             = "tagging"
-	subsystemPricingOverrides    = "model pricing overrides"
-	subsystemGuardrails          = "guardrails"
-	subsystemWorkflows           = "workflows"
-	subsystemAuthKeys            = "auth keys"
-	subsystemUsers               = "users"
-	subsystemMCPGateway          = "mcp gateway"
-	subsystemResponseCache       = "response cache"
-	subsystemTelemetry           = "opentelemetry"
+	subsystemLive                    = "live broker"
+	subsystemStorage                 = "storage"
+	subsystemRuntimeSettings         = "runtime settings"
+	subsystemProviders               = "providers"
+	subsystemAudit                   = "audit"
+	subsystemUsage                   = "usage"
+	subsystemBudgets                 = "budgets"
+	subsystemRateLimits              = "rate limits"
+	subsystemBatch                   = "batch store"
+	subsystemFileStore               = "file store"
+	subsystemResponseStore           = "response store"
+	subsystemConversationStore       = "conversation store"
+	subsystemProviderCredentials     = "provider credentials"
+	subsystemVirtualModels           = "virtual models"
+	subsystemTagging                 = "tagging"
+	subsystemPricingOverrides        = "model pricing overrides"
+	subsystemCapabilityConfirmations = "capability confirmations"
+	subsystemGuardrails              = "guardrails"
+	subsystemWorkflows               = "workflows"
+	subsystemAuthKeys                = "auth keys"
+	subsystemUsers                   = "users"
+	subsystemMCPGateway              = "mcp gateway"
+	subsystemResponseCache           = "response cache"
+	subsystemTelemetry               = "opentelemetry"
 )
 
 // registeredSubsystem is one initialized component together with the teardown
@@ -120,6 +121,7 @@ func (a *App) shutdownOrder() []registeredSubsystem {
 		{name: subsystemTagging, close: closerOf(a.tagging)},
 		{name: subsystemWorkflows, close: closerOf(a.workflows)},
 		{name: subsystemPricingOverrides, close: closerOf(a.pricingOverrides)},
+		{name: subsystemCapabilityConfirmations, close: closerOf(a.capabilities)},
 		{name: subsystemGuardrails, close: closerOf(a.guardrails)},
 		{name: subsystemAuthKeys, close: closerOf(a.authKeys)},
 		{name: subsystemUsers, close: closerOf(a.users)},

@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -13,6 +14,11 @@ import (
 type ModelRegistry interface {
 	MergeModelCapabilities(providerName, modelID string, caps map[string]bool, source string) bool
 }
+
+// ErrUnknownModel reports that the registry rejected a confirmation because
+// the provider/model pair is unknown (e.g. the model vanished from upstream
+// between persistence and merge). Errors.Is-compatible for handlers.
+var ErrUnknownModel = errors.New("unknown provider/model")
 
 // Service persists operator-confirmed capabilities and replays them into the
 // registry. Refresh runs once at startup (and may run again later); Confirm
@@ -100,7 +106,7 @@ func (s *Service) Confirm(ctx context.Context, provider, model string, caps map[
 		}
 	}
 	if !s.registry.MergeModelCapabilities(provider, model, caps, rows[0].Source) {
-		return fmt.Errorf("apply capability confirmation: unknown provider/model %s/%s", provider, model)
+		return fmt.Errorf("apply capability confirmation: %w", ErrUnknownModel)
 	}
 	return nil
 }

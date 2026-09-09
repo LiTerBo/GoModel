@@ -1,12 +1,14 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/enterpilot/gomodel/internal/capability"
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/modeldata/modeltest"
 )
@@ -173,6 +175,26 @@ func (h *Handler) ListModelTestResults(c *echo.Context) error {
 	return c.JSON(http.StatusOK, results)
 }
 
+// confirmCapabilities is the shared confirmation path for the probe and
+// observation endpoints: it persists the verdict durably first (so a restart
+// never loses an acknowledged confirmation), then merges into the in-memory
+// registry. Without a wired confirmer the historical registry-only path
+// applies. source must be one of the core.CapSrc* confirmation sources.
+func (h *Handler) confirmCapabilities(c *echo.Context, provider, model string, caps map[string]bool, source string) error {
+	if h.capabilities != nil {
+		if err := h.capabilities.Confirm(c.Request().Context(), provider, model, caps, source); err != nil {
+			if errors.Is(err, capability.ErrUnknownModel) {
+				return core.NewModelNotFoundError(selectorOf(provider, model))
+			}
+			return err
+		}
+	}
+	if !h.modelTest.MergeModelCapabilities(provider, model, caps, source) {
+		return core.NewModelNotFoundError(selectorOf(provider, model))
+	}
+	return nil
+}
+
 // ConfirmModelCapabilities handles PUT /admin/models/capabilities: an
 // operator's explicit confirmation of probe/observation verdicts. Only this
 // endpoint (and its observation counterpart) can change model capabilities;
@@ -209,8 +231,8 @@ func (h *Handler) ConfirmModelCapabilities(c *echo.Context) error {
 			return handleError(c, core.NewInvalidRequestError("capability keys must be non-empty", nil))
 		}
 	}
-	if !h.modelTest.MergeModelCapabilities(req.Provider, req.Model, req.Caps, core.CapSrcTest) {
-		return handleError(c, core.NewModelNotFoundError(selectorOf(req.Provider, req.Model)))
+	if err := h.confirmCapabilities(c, req.Provider, req.Model, req.Caps, core.CapSrcTest); err != nil {
+		return handleError(c, err)
 	}
 	return c.JSON(http.StatusOK, req.Caps)
 }
@@ -251,8 +273,8 @@ func (h *Handler) ConfirmObservedCapabilities(c *echo.Context) error {
 			return handleError(c, core.NewInvalidRequestError("capability keys must be non-empty", nil))
 		}
 	}
-	if !h.modelTest.MergeModelCapabilities(req.Provider, req.Model, req.Caps, core.CapSrcObserved) {
-		return handleError(c, core.NewModelNotFoundError(selectorOf(req.Provider, req.Model)))
+	if err := h.confirmCapabilities(c, req.Provider, req.Model, req.Caps, core.CapSrcObserved); err != nil {
+		return handleError(c, err)
 	}
 	return c.JSON(http.StatusOK, req.Caps)
 }

@@ -120,6 +120,7 @@ func (b *bootstrap) phases() []func() error {
 		b.initStores,
 		b.initModelCatalog,
 		b.initPricing,
+		b.initCapabilities,
 		b.initWorkflows,
 		b.initServerDependencies,
 		b.initServerConfig,
