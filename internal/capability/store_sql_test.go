@@ -21,6 +21,45 @@ func runSQLStoreTest(t *testing.T, body func(t *testing.T, store *SQLStore, db s
 	})
 }
 
+// G-2: the store creates its own table on first use — an empty database needs
+// no external migration — and re-initialization is idempotent, so a restart
+// (or a second subsystem over the same store) never collides with the schema.
+func TestStoreAutoCreatesTableIdempotently(t *testing.T) {
+	sqlxtest.Run(t, func(t *testing.T, db sqlx.DB) {
+		ctx := context.Background()
+
+		// First touch on the empty database: the schema materializes inside
+		// NewSQLStore, and a first write succeeds without any DDL elsewhere.
+		first, err := NewSQLStore(ctx, db)
+		if err != nil {
+			t.Fatalf("first NewSQLStore on empty db: %v", err)
+		}
+		if err := first.Upsert(ctx, Confirmation{
+			Provider: "local", Model: "my-llm", Capability: "function_calling",
+			Source: SourceTest, Value: true,
+		}); err != nil {
+			t.Fatalf("first Upsert on auto-created table: %v", err)
+		}
+		_ = first.Close()
+
+		// Second initialization over the same store must succeed (IF NOT
+		// EXISTS), mirroring a fresh process attaching to an existing db.
+		second, err := NewSQLStore(ctx, db)
+		if err != nil {
+			t.Fatalf("second NewSQLStore over existing table: %v", err)
+		}
+		t.Cleanup(func() { _ = second.Close() })
+
+		rows, err := second.List(ctx)
+		if err != nil {
+			t.Fatalf("List after re-init: %v", err)
+		}
+		if len(rows) != 1 || rows[0].Capability != "function_calling" {
+			t.Fatalf("rows = %+v, want the persisted confirmation to survive re-init", rows)
+		}
+	})
+}
+
 // runStoreSuite exercises behaviour every Store implementation owes its
 // callers, against each backend available in this environment (SQLite via
 // sqlxtest; MongoDB lands with a Mongo store implementation).
