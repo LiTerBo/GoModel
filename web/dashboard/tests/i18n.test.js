@@ -87,6 +87,36 @@ test("every English message is referenced by dashboard source", () => {
   }
 });
 
+// The mirror of the check above: a source call to a key that no longer exists
+// would otherwise only surface in the browser console — Paraglide's generated
+// module has no such export, and svelte-check does not type the wildcard import
+// (this is how a leftover m.providers_access_*() call survived a rename). Only
+// the call form m.<key>( is scanned: some files bind an unrelated payload
+// object to `m` (audit-logs/…), and ~43 message keys are passed around as values
+// (navigation_*, mcp_status_*, …), which this check deliberately skips.
+test("every message call in dashboard source exists in the English catalog", () => {
+  const sourceRoot = fileURLToPath(new URL("../src", import.meta.url));
+  const bindsCatalog = /import \* as m from ["'][^"']*paraglide\/messages\.js["']/;
+  const call = /\bm\.([a-z][a-z0-9_]*)\s*\(/g;
+
+  const stale = [];
+  for (const path of sourceFiles(sourceRoot)) {
+    const source = readFileSync(path, "utf8");
+    if (!bindsCatalog.test(source)) continue;
+    for (const [, key] of source.matchAll(call)) {
+      if (!(key in englishMessages)) {
+        stale.push(`${key} (${path.slice(sourceRoot.length + 1)})`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    stale,
+    [],
+    "stale message call: the key was renamed or removed but source still calls it",
+  );
+});
+
 // --- Cross-catalog parity -------------------------------------------------
 //
 // Runtime falls back to English per message, so a translation catalog may be

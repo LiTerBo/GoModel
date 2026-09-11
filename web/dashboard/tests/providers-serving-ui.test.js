@@ -15,6 +15,18 @@ const TOGGLE = new URL(
   "../src/lib/components/atoms/EnabledToggle.svelte",
   import.meta.url,
 );
+const LIST = new URL(
+  "../src/pages/providers-config/ProviderCredentialList.svelte",
+  import.meta.url,
+);
+const ROW_TOGGLE = new URL(
+  "../src/pages/providers-config/ProviderAccessToggle.svelte",
+  import.meta.url,
+);
+const STORE = new URL(
+  "../src/pages/providers-config/providersConfig.svelte.js",
+  import.meta.url,
+);
 
 test("the provider editor renders a registration switch and a serving switch", async () => {
   const { readFile } = await import("node:fs/promises");
@@ -66,6 +78,28 @@ test("EnabledToggle accepts an aria override without changing its default", asyn
   // The shared caption keys stay the default for every other caller.
   assert.match(src, /m\.common_enabled\(\)/);
   assert.match(src, /m\.common_disabled\(\)/);
+});
+
+test("the provider table names its switch column after model serving", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(LIST, "utf8");
+
+  assert.match(src, /title=\{m\.providers_serving_column_hint\(\)\}/);
+  assert.match(src, />\{m\.providers_serving_column\(\)\}</);
+  assert.doesNotMatch(src, /m\.providers_enabled\(\)/);
+});
+
+test("no provider switch speaks Enable/Disable any more", async () => {
+  const { readFile } = await import("node:fs/promises");
+
+  for (const url of [LIST, TOGGLE, ROW_TOGGLE, STORE]) {
+    assert.doesNotMatch(await readFile(url, "utf8"), /providers_access_/);
+  }
+  assert.match(await readFile(ROW_TOGGLE, "utf8"), /m\.providers_serving_stop_action\(/);
+  assert.match(await readFile(ROW_TOGGLE, "utf8"), /m\.providers_serving_start_action\(/);
+  assert.match(await readFile(STORE, "utf8"), /m\.providers_serving_started\(/);
+  assert.match(await readFile(STORE, "utf8"), /m\.providers_serving_stopped\(/);
+  assert.match(await readFile(STORE, "utf8"), /m\.providers_serving_update_failed\(/);
 });
 
 test("registration and serving wording exists in both language catalogs", async () => {

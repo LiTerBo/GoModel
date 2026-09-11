@@ -266,7 +266,7 @@ class ProvidersConfigState {
     );
     if (!request) {
       if (this.providerAccessFor(provider).managed) {
-        flash.success(m.providers_access_managed_read_only({ name: provider }));
+        flash.success(m.providers_serving_managed_read_only({ name: provider }));
       }
       return;
     }
@@ -281,7 +281,7 @@ class ProvidersConfigState {
       );
       if (result.status === 503) {
         this.virtualModelsAvailable = false;
-        flash.error(m.providers_access_unavailable());
+        flash.error(m.providers_serving_unavailable());
         return;
       }
       // Dropping a policy that is already gone is the outcome we wanted.
@@ -293,15 +293,15 @@ class ProvidersConfigState {
           flash.error(
             result.status === 401
               ? m.common_authentication_required()
-              : errorPayloadMessage(result.data, m.providers_access_update_failed()),
+              : errorPayloadMessage(result.data, m.providers_serving_update_failed()),
           );
           return;
         }
       }
       flash.success(
         request.desired
-          ? m.providers_access_enabled({ name: provider })
-          : m.providers_access_disabled({ name: provider }),
+          ? m.providers_serving_started({ name: provider })
+          : m.providers_serving_stopped({ name: provider }),
       );
       // The models list carries each model's effective availability, and the
       // switches read the policy list back.
@@ -309,7 +309,7 @@ class ProvidersConfigState {
       void this.#fetchVirtualModels();
     } catch (e) {
       console.error("Failed to toggle provider model availability:", e);
-      flash.error(m.providers_access_update_failed());
+      flash.error(m.providers_serving_update_failed());
     } finally {
       this.accessTogglingName = "";
     }
