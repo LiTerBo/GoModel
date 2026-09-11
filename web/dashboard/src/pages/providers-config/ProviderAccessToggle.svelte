@@ -16,8 +16,8 @@
   const available = $derived(providersConfig.virtualModelsAvailable);
   const label = $derived(
     access.effective_enabled
-      ? m.providers_access_disable_all({ name: row.name })
-      : m.providers_access_enable_all({ name: row.name }),
+      ? m.providers_serving_stop_action({ name: row.name })
+      : m.providers_serving_start_action({ name: row.name }),
   );
 </script>
 

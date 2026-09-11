@@ -10,6 +10,8 @@
   //   restricted — the "enabled but user-path-scoped" amber state
   //   onclick    — toggle handler
   //   text       — visible caption override; defaults to Enabled/Disabled
+  //   ariaLabel  — full aria override for callers whose action wording differs
+  //                from "Enable/Disable {label}" (e.g. Start/Stop serving)
   import * as m from "$lib/paraglide/messages.js";
 
   let {
@@ -19,6 +21,7 @@
     restricted = false,
     onclick,
     text,
+    ariaLabel = "",
   } = $props();
 </script>
 
@@ -28,9 +31,10 @@
   class:enabled
   class:restricted
   {disabled}
-  aria-label={(enabled
-    ? m.common_action_disable({ subject: label })
-    : m.common_action_enable({ subject: label }))}
+  aria-label={ariaLabel ||
+    (enabled
+      ? m.common_action_disable({ subject: label })
+      : m.common_action_enable({ subject: label }))}
   {onclick}
 >
   <span class="alias-toggle-track"><span class="alias-toggle-thumb"></span></span>

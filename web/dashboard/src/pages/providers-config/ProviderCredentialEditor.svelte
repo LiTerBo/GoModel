@@ -14,6 +14,7 @@
   import {
     providerCredentialTypeOptions,
     providerDiscoveryState,
+    providerServingToggleState,
     suggestProviderCredentialName,
   } from "./providersConfigLogic.js";
   import { timezone } from "$lib/stores/timezone.svelte.js";
@@ -48,6 +49,22 @@
           formatFetchedAt,
         )
       : null,
+  );
+
+  // Registration and serving are independent fields: the switch above writes the
+  // credential's enabled flag (registration = the models enter the list at all),
+  // the switch below writes the provider-scoped access policy (serving = the
+  // listed models answer requests). Registration follows this dialog's own
+  // switch, so what the operator sees is what gates the serving switch.
+  const servingAccess = $derived(
+    providersConfig.providerAccessFor(providersConfig.form.name),
+  );
+  const servingToggle = $derived(
+    providerServingToggleState(servingAccess, {
+      mode: providersConfig.formMode,
+      registered: providersConfig.form.enabled,
+      available: providersConfig.virtualModelsAvailable,
+    }),
   );
 
   // onTypeChange resets the Name field to a fresh suggestion whenever the
@@ -176,15 +193,55 @@
     </div>
   {/if}
 
-  <div class="vm-status-row">
-    <div class="vm-status-toggle">
-      <EnabledToggle
-        enabled={providersConfig.form.enabled}
-        label={m.providers_provider_toggle()}
-        onclick={() => (providersConfig.form.enabled = !providersConfig.form.enabled)}
-      />
+  <div class="form-field">
+    <span class="form-field-label">{m.providers_registration_status()}</span>
+    <div class="vm-status-row">
+      <div class="vm-status-toggle">
+        <EnabledToggle
+          enabled={providersConfig.form.enabled}
+          label={m.providers_provider_toggle()}
+          text={providersConfig.form.enabled
+            ? m.providers_registration_on()
+            : m.providers_registration_off()}
+          onclick={() => (providersConfig.form.enabled = !providersConfig.form.enabled)}
+        />
+      </div>
     </div>
+    <small class="form-hint">{m.providers_registration_hint()}</small>
   </div>
+
+  {#if servingToggle.visible}
+    <div class="form-field">
+      <span class="form-field-label">{m.providers_serving_status()}</span>
+      <div class="vm-status-row">
+        <div class="vm-status-toggle">
+          <EnabledToggle
+            enabled={servingAccess.effective_enabled}
+            label={m.providers_serving_status()}
+            text={servingAccess.effective_enabled
+              ? m.providers_serving_on()
+              : m.providers_serving_off()}
+            disabled={servingToggle.disabled}
+            ariaLabel={servingAccess.effective_enabled
+              ? m.providers_serving_stop_action({ name: providersConfig.form.name })
+              : m.providers_serving_start_action({ name: providersConfig.form.name })}
+            onclick={() => providersConfig.toggleProviderAccess(providersConfig.form.name)}
+          />
+        </div>
+      </div>
+      <small class="form-hint">{m.providers_serving_hint()}</small>
+      <small class="form-hint">{m.providers_serving_exception_hint()}</small>
+      {#if servingToggle.reason === "unregistered"}
+        <small class="form-hint" role="alert">{m.providers_serving_blocked_hint()}</small>
+      {:else if servingToggle.reason === "managed"}
+        <small class="form-hint" role="alert"
+          >{m.providers_serving_managed_read_only({ name: providersConfig.form.name })}</small
+        >
+      {:else if servingToggle.reason === "unavailable"}
+        <small class="form-hint" role="alert">{m.providers_serving_unavailable()}</small>
+      {/if}
+    </div>
+  {/if}
 
   {#if fields.advanced.length > 0}
     <details

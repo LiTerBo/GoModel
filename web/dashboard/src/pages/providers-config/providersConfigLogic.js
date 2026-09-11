@@ -498,6 +498,32 @@ export function providerAccessToggleRequest(views, name, defaultEnabled = true) 
   return buildModelTogglePayload(state.selector, state.policy, state);
 }
 
+// providerServingToggleState reports how the editor's「模型上架状态」switch must
+// behave. Registration gates it: an unregistered provider has no models in the
+// list to put on the shelf, so the switch stays disabled instead of writing a
+// policy nothing reads. `registered` follows the editor's own registration
+// switch — what the dialog shows — not the stored row.
+//   visible  false while creating: a provider without a name owns no policy
+//   disabled the switch would write something nothing enforces
+//   readonly the policy is declared in configuration
+//   reason   which hint explains a non-interactive switch ("" when live)
+export function providerServingToggleState(access, options = {}) {
+  const { mode = "edit", registered = true, available = true } = options || {};
+  if (mode !== "edit") {
+    return { visible: false, disabled: true, readonly: false, reason: "" };
+  }
+  if (access && access.managed) {
+    return { visible: true, disabled: false, readonly: true, reason: "managed" };
+  }
+  if (!registered) {
+    return { visible: true, disabled: true, readonly: false, reason: "unregistered" };
+  }
+  if (!available) {
+    return { visible: true, disabled: true, readonly: false, reason: "unavailable" };
+  }
+  return { visible: true, disabled: false, readonly: false, reason: "" };
+}
+
 // providerCredentialKeysToRows converts a stored api_keys array (usually all
 // "***********" masks) into editable {value} rows.
 export function providerCredentialKeysToRows(apiKeys) {

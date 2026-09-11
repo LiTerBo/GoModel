@@ -29,7 +29,7 @@
         <th>{m.overview_base_url()}</th>
         <th>{m.providers_auth()}</th>
         <th>{m.providers_models()}</th>
-        <th>{m.providers_enabled()}</th>
+        <th title={m.providers_serving_column_hint()}>{m.providers_serving_column()}</th>
         <th>{m.providers_updated()}</th>
         <th class="col-actions">{m.providers_actions()}</th>
       </tr>
