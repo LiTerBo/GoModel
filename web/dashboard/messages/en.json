@@ -1351,6 +1351,13 @@
   "providers_refresh_truncated": "and {count} more",
   "providers_refresh_failed": "Failed to refresh the model list for \"{name}\".",
   "providers_refresh_hint": "Fetch this provider's model list from upstream now, instead of waiting for the background refresh interval.",
+  "providers_access_enable_all": "Enable every model served by {name}",
+  "providers_access_disable_all": "Disable every model served by {name}",
+  "providers_access_enabled": "Enabled every model served by {name}.",
+  "providers_access_disabled": "Disabled every model served by {name}.",
+  "providers_access_update_failed": "Failed to update the provider's model availability.",
+  "providers_access_managed_read_only": "Model availability for {name} is managed by configuration and is read-only.",
+  "providers_access_unavailable": "Model availability switches are unavailable.",
   "providers_default_value": "Defaults to {value}",
   "providers_keys_count": [
     {

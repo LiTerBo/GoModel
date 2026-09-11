@@ -17,6 +17,10 @@ import {
   providerDiscoveryLabel,
   providerDiscoveryState,
   providerModelsCell,
+  providerAccessSelector,
+  providerAccessPolicy,
+  providerAccessState,
+  providerAccessToggleRequest,
   providerModelsRefreshPath,
   providerModelsRefreshSummary,
   mergeProviderRuntime,
@@ -702,4 +706,119 @@ test("providerDiscoveryState describes a stored provider, or nothing while creat
     providerDiscoveryState({ name: "deepseek", models: ["gpt-4o"] }, null, formatTime),
     "Auto-discovered, plus 1 configured model",
   );
+});
+
+// ---- Provider-wide model availability -------------------------------
+// The Enabled column switches every model a provider serves by writing the
+// provider-scoped access policy (source "<provider>/"), which is the same row
+// the Models page provider-group toggle and the per-model Enabled switch use.
+
+const PROVIDER_POLICY_VIEWS = [
+  { source: "deepseek/", enabled: false, user_paths: [] },
+  { source: "openai-compatible/DeepSeek-V4-Flash", enabled: false },
+  { source: "smart", kind: "redirect", enabled: true },
+];
+
+test("providerAccessSelector scopes a policy to the whole provider", () => {
+  assert.equal(providerAccessSelector("deepseek"), "deepseek/");
+  assert.equal(providerAccessSelector("  deepseek  "), "deepseek/");
+  assert.equal(providerAccessSelector(""), "");
+  assert.equal(providerAccessSelector(null), "");
+});
+
+test("providerAccessPolicy finds only the provider-wide policy row", () => {
+  assert.equal(providerAccessPolicy(PROVIDER_POLICY_VIEWS, "deepseek").source, "deepseek/");
+  assert.equal(providerAccessPolicy(PROVIDER_POLICY_VIEWS, "omlx"), null);
+  assert.equal(providerAccessPolicy(null, "deepseek"), null);
+  assert.equal(providerAccessPolicy(PROVIDER_POLICY_VIEWS, ""), null);
+});
+
+test("providerAccessState reports the provider-wide policy, else the deployment default", () => {
+  const off = providerAccessState(PROVIDER_POLICY_VIEWS, "deepseek", true);
+  assert.equal(off.selector, "deepseek/");
+  assert.equal(off.effective_enabled, false);
+  assert.equal(off.managed, false);
+
+  const on = providerAccessState(PROVIDER_POLICY_VIEWS, "omlx", true);
+  assert.equal(on.policy, null);
+  assert.equal(on.effective_enabled, true);
+
+  // A deployment shipping models disabled keeps a policy-less provider off.
+  assert.equal(providerAccessState([], "omlx", false).effective_enabled, false);
+  assert.equal(providerAccessState([], "omlx", undefined).effective_enabled, true);
+
+  const managed = providerAccessState(
+    [{ source: "deepseek/", enabled: true, managed: true }],
+    "deepseek",
+    true,
+  );
+  assert.equal(managed.managed, true);
+  assert.equal(managed.effective_enabled, true);
+});
+
+test("providerAccessToggleRequest disables every model of a provider with one policy PUT", () => {
+  const { method, payload, desired } = providerAccessToggleRequest([], "deepseek", true);
+  assert.equal(method, "PUT");
+  assert.equal(desired, false);
+  assert.deepEqual(payload, { source: "deepseek/", enabled: false, user_paths: [] });
+});
+
+test("providerAccessToggleRequest re-enabling drops a redundant policy", () => {
+  const { method, payload, desired } = providerAccessToggleRequest(
+    PROVIDER_POLICY_VIEWS,
+    "deepseek",
+    true,
+  );
+  assert.equal(method, "DELETE");
+  assert.equal(desired, true);
+  assert.deepEqual(payload, { source: "deepseek/" });
+});
+
+test("providerAccessToggleRequest keeps a restricted, slowed, or default-off policy", () => {
+  const restricted = providerAccessToggleRequest(
+    [{ source: "deepseek/", enabled: false, user_paths: ["/agents"] }],
+    "deepseek",
+    true,
+  );
+  assert.equal(restricted.method, "PUT");
+  assert.deepEqual(restricted.payload, {
+    source: "deepseek/",
+    enabled: true,
+    user_paths: ["/agents"],
+  });
+
+  const slowed = providerAccessToggleRequest(
+    [{ source: "deepseek/", enabled: false, slowdown: 2 }],
+    "deepseek",
+    true,
+  );
+  assert.equal(slowed.method, "PUT");
+  assert.deepEqual(slowed.payload, {
+    source: "deepseek/",
+    enabled: true,
+    user_paths: [],
+    slowdown: 2,
+  });
+
+  // Default-off deployment: enabling writes an explicit policy instead of
+  // deleting its way back to a default that is itself off.
+  const defaultOff = providerAccessToggleRequest(
+    [{ source: "deepseek/", enabled: false }],
+    "deepseek",
+    false,
+  );
+  assert.equal(defaultOff.method, "PUT");
+  assert.equal(defaultOff.payload.enabled, true);
+});
+
+test("providerAccessToggleRequest refuses managed policies and unnamed providers", () => {
+  assert.equal(
+    providerAccessToggleRequest(
+      [{ source: "deepseek/", enabled: true, managed: true }],
+      "deepseek",
+      true,
+    ),
+    null,
+  );
+  assert.equal(providerAccessToggleRequest([], "", true), null);
 });

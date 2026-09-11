@@ -89,6 +89,7 @@ const (
 	DashboardConfigMCPEnabled           = "MCP_ENABLED"
 	DashboardConfigVMStrategies         = "VIRTUAL_MODEL_STRATEGIES"
 	DashboardConfigUserPathHeader       = "USER_PATH_HEADER"
+	DashboardConfigModelsEnabledDefault = "MODELS_ENABLED_BY_DEFAULT"
 )
 
 // statusClientClosedRequest is the de facto status used by proxies for client-aborted requests.
@@ -120,6 +121,11 @@ type DashboardConfigResponse struct {
 	// reads user paths from (server.user_path_header), so the Playground sends
 	// the header this deployment actually honors.
 	UserPathHeader string `json:"USER_PATH_HEADER,omitempty"`
+	// ModelsEnabledByDefault is models.enabled_by_default: whether a provider
+	// model with no access policy is available. The Providers page shows a
+	// provider-wide availability switch, and a deployment that ships models
+	// disabled must render a policy-less provider as off rather than guess.
+	ModelsEnabledByDefault string `json:"MODELS_ENABLED_BY_DEFAULT,omitempty"`
 }
 
 type providerStatusSummaryResponse struct {
@@ -447,6 +453,7 @@ func normalizeDashboardRuntimeConfig(values DashboardConfigResponse) DashboardCo
 		MCPEnabled:             strings.TrimSpace(values.MCPEnabled),
 		VirtualModelStrategies: strings.TrimSpace(values.VirtualModelStrategies),
 		UserPathHeader:         strings.TrimSpace(values.UserPathHeader),
+		ModelsEnabledByDefault: strings.TrimSpace(values.ModelsEnabledByDefault),
 	}
 }
 

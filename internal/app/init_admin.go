@@ -244,6 +244,10 @@ func dashboardRuntimeConfig(cfg *config.Config, usageEnabled, demoMode, adaptive
 		MCPEnabled:             dashboardEnabledValue(cfg != nil && cfg.MCP.Enabled),
 		VirtualModelStrategies: dashboardVirtualModelStrategies(adaptiveRouting),
 		UserPathHeader:         dashboardUserPathHeader(cfg),
+		// models.enabled_by_default is the deployment default the Providers page
+		// needs to render a provider-wide availability switch (a provider with
+		// no access policy of its own).
+		ModelsEnabledByDefault: dashboardEnabledValue(cfg != nil && cfg.Models.EnabledByDefault),
 	}
 }
 

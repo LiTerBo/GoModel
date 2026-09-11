@@ -6,6 +6,10 @@
 //   GET    /admin/provider-credentials/types    — types + their credential forms
 //   PUT    /admin/provider-credentials          — upsert one row
 //   DELETE /admin/provider-credentials/{name}   — delete one row
+//   POST   /admin/providers/{name}/models/refresh — re-fetch one model list
+//   GET    /admin/virtual-models                — access policies (switch state)
+//   PUT    /admin/virtual-models                — write a provider-wide policy
+//   DELETE /admin/virtual-models                — drop it again
 
 import { errorPayloadMessage, getJSON, sendJSON } from "$lib/api/client.js";
 import { loadAdminList, sendAdminMutation } from "$lib/api/adminCrud.js";
@@ -13,10 +17,13 @@ import { confirmDialog } from "$lib/stores/confirm.svelte.js";
 import { flash } from "$lib/stores/flash.svelte.js";
 import * as m from "$lib/paraglide/messages.js";
 import { modelsStore } from "$lib/stores/models.svelte.js";
+import { runtimeConfig } from "$lib/stores/runtimeConfig.svelte.js";
 import {
   defaultProviderCredentialForm,
   filterProviderCredentials,
   mergeProviderRuntime,
+  providerAccessState,
+  providerAccessToggleRequest,
   providerCredentialFormFields,
   providerCredentialRowToForm,
   providerCredentialSchema,
@@ -54,6 +61,16 @@ class ProvidersConfigState {
   // Name of the provider whose model list is being re-fetched, empty when no
   // refresh is in flight.
   refreshingName = $state("");
+
+  // Provider-wide availability. Turning a provider off is an access policy on
+  // the provider scope — a virtual-model row whose source is "<provider>/" —
+  // which is the policy the Models page writes from its provider-group and
+  // per-model Enabled switches. It is independent of the credential's own
+  // enabled flag: a switched-off provider stays registered and keeps listing
+  // its models, they are just not routable.
+  virtualModels = $state([]);
+  virtualModelsAvailable = $state(true);
+  accessTogglingName = $state("");
 
   // Credential schemas: one per constructible provider type, naming the
   // fields that type accepts.
@@ -102,6 +119,17 @@ class ProvidersConfigState {
   // load (the editor then shows every field rather than none).
   get schema() {
     return providerCredentialSchema(this.types, this.form.type);
+  }
+
+  // providerAccessFor is the availability switch state for one provider row:
+  // whether its models are currently available, and whether the policy behind
+  // that is this page's to change.
+  providerAccessFor(name) {
+    return providerAccessState(
+      this.virtualModels,
+      name,
+      runtimeConfig.modelsEnabledByDefault(),
+    );
   }
 
   // formFields are the credential fields to render. Until a type is picked
@@ -164,6 +192,7 @@ class ProvidersConfigState {
         await this.fetchTypes();
       }
       void this.#fetchProviderRuntime();
+      void this.#fetchVirtualModels();
     } finally {
       if (this.#controller === controller) {
         this.#controller = null;
@@ -188,6 +217,101 @@ class ProvidersConfigState {
       this.providerRuntime = providers;
     } catch (e) {
       console.error("Failed to fetch provider status:", e);
+    }
+  }
+
+  // #fetchVirtualModels loads the access policies the availability switches
+  // read. A 503 means this deployment has the virtual-model feature off: the
+  // switches render disabled rather than claiming a state nothing enforces.
+  async #fetchVirtualModels() {
+    try {
+      const result = await getJSON("/admin/virtual-models", {
+        label: "virtual models",
+      });
+      if (result.stale) {
+        return;
+      }
+      if (result.status === 503) {
+        this.virtualModelsAvailable = false;
+        this.virtualModels = [];
+        return;
+      }
+      if (!result.ok) {
+        return;
+      }
+      this.virtualModelsAvailable = true;
+      this.virtualModels = Array.isArray(result.data) ? result.data : [];
+    } catch (e) {
+      console.error("Failed to fetch virtual models:", e);
+    }
+  }
+
+  // toggleProviderAccess switches every model a provider serves on or off. One
+  // provider-scoped access policy does it: the same row, written the same way,
+  // as the Models page's provider-group and per-model Enabled switches, so both
+  // pages agree on what "off" means. A policy declared in configuration is not
+  // this page's to change, and says so instead of failing.
+  async toggleProviderAccess(name) {
+    const provider = String(name || "").trim();
+    if (!provider || this.accessTogglingName) {
+      return;
+    }
+    // The deployment default decides how a policy-less provider reads, and
+    // whether re-enabling may simply drop the policy again.
+    await runtimeConfig.ensureLoaded();
+    const request = providerAccessToggleRequest(
+      this.virtualModels,
+      provider,
+      runtimeConfig.modelsEnabledByDefault(),
+    );
+    if (!request) {
+      if (this.providerAccessFor(provider).managed) {
+        flash.success(m.providers_access_managed_read_only({ name: provider }));
+      }
+      return;
+    }
+
+    this.accessTogglingName = provider;
+    try {
+      const result = await sendJSON(
+        "/admin/virtual-models",
+        request.method,
+        request.payload,
+        { label: "provider model availability" },
+      );
+      if (result.status === 503) {
+        this.virtualModelsAvailable = false;
+        flash.error(m.providers_access_unavailable());
+        return;
+      }
+      // Dropping a policy that is already gone is the outcome we wanted.
+      if (!(request.method === "DELETE" && result.status === 404)) {
+        if (result.stale) {
+          return;
+        }
+        if (!result.ok) {
+          flash.error(
+            result.status === 401
+              ? m.common_authentication_required()
+              : errorPayloadMessage(result.data, m.providers_access_update_failed()),
+          );
+          return;
+        }
+      }
+      flash.success(
+        request.desired
+          ? m.providers_access_enabled({ name: provider })
+          : m.providers_access_disabled({ name: provider }),
+      );
+      // The models list carries each model's effective availability, and the
+      // switches read the policy list back.
+      modelsStore.fetchModels();
+      void this.#fetchVirtualModels();
+    } catch (e) {
+      console.error("Failed to toggle provider model availability:", e);
+      flash.error(m.providers_access_update_failed());
+    } finally {
+      this.accessTogglingName = "";
     }
   }
 
@@ -346,6 +470,7 @@ class ProvidersConfigState {
     modelsStore.fetchModels();
     modelsStore.fetchCategories();
     void this.#fetchProviderRuntime();
+    void this.#fetchVirtualModels();
   }
 
   async submitForm() {

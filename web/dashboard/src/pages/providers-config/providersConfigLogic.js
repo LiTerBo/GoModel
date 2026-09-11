@@ -10,6 +10,10 @@
 
 import { splitCommaList } from "../../lib/utils/format.js";
 import * as m from "../../lib/paraglide/messages.js";
+// Provider access is written with the same policy payload builder the Models
+// page uses for its per-model and provider-group Enabled switches, so both
+// pages flip a selector the same way.
+import { buildModelTogglePayload } from "../models/vmForm.js";
 
 export { splitCommaList };
 
@@ -431,6 +435,67 @@ export function providerModelsRefreshSummary(result) {
     parts.push(m.providers_refresh_unchanged());
   }
   return parts.join(" · ");
+}
+
+// ---- Provider-wide model availability -------------------------------
+// Turning a provider off is an access policy on the provider scope (a
+// virtual-model row whose source is "<provider>/"), which is the same row the
+// Models page provider-group toggle and the per-model Enabled switch write. One
+// policy therefore switches every model that provider serves, and a
+// configuration-declared provider — whose credential row is read-only — can be
+// switched too.
+
+// providerAccessSelector is the provider-wide selector an access policy is
+// stored under.
+export function providerAccessSelector(name) {
+  const provider = String(name || "").trim();
+  return provider ? provider + "/" : "";
+}
+
+// providerAccessPolicy returns the provider-wide policy row from the
+// virtual-model views (GET /admin/virtual-models), or null when the provider
+// carries no policy of its own.
+export function providerAccessPolicy(views, name) {
+  const selector = providerAccessSelector(name);
+  if (!selector) {
+    return null;
+  }
+  return (
+    (Array.isArray(views) ? views : []).find(
+      (view) => String((view && view.source) || "").trim() === selector,
+    ) || null
+  );
+}
+
+// providerAccessState is the switch state for one provider row. Only the
+// provider-wide policy counts (a model disabled on its own leaves the switch
+// on): the switch reports what it would change back. default_enabled is the
+// deployment-wide model default (models.enabled_by_default), so a deployment
+// that ships models disabled shows a policy-less provider as off.
+export function providerAccessState(views, name, defaultEnabled = true) {
+  const policy = providerAccessPolicy(views, name);
+  const fallback = defaultEnabled !== false;
+  return {
+    selector: providerAccessSelector(name),
+    policy,
+    managed: Boolean(policy && policy.managed),
+    default_enabled: fallback,
+    // Honour the policy's enabled VALUE, not just its presence: a disabled
+    // policy leaves the provider off even though a policy exists.
+    effective_enabled: policy ? policy.enabled !== false : fallback,
+  };
+}
+
+// providerAccessToggleRequest is the request that flips one provider's models:
+// disabling writes the provider-wide policy, re-enabling drops it again when it
+// carries nothing else. Null when there is nothing this page may write: an
+// unnamed provider, or a policy declared in configuration.
+export function providerAccessToggleRequest(views, name, defaultEnabled = true) {
+  const state = providerAccessState(views, name, defaultEnabled);
+  if (!state.selector || state.managed) {
+    return null;
+  }
+  return buildModelTogglePayload(state.selector, state.policy, state);
 }
 
 // providerCredentialKeysToRows converts a stored api_keys array (usually all
