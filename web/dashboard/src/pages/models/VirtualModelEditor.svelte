@@ -240,6 +240,9 @@
         label={m.models_virtual_model_toggle()}
         disabled={vm.vmFormManaged}
         text={vm.vmFormToggleLabel()}
+        ariaLabel={vm.vmForm.enabled
+          ? m.models_disable_action({ subject: m.models_virtual_model_toggle() })
+          : m.models_enable_action({ subject: m.models_virtual_model_toggle() })}
         onclick={() => {
           if (!vm.vmFormManaged) {
             vm.vmForm.enabled = !vm.vmForm.enabled;
