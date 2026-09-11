@@ -1436,6 +1436,7 @@
   "models_collapse_all": "Collapse all groups",
   "models_global_scope_subject": "all providers and models",
   "models_disabled_default": "Paused by default",
+  "models_toggle_provider_paused": "This provider's models are paused — start serving the provider first.",
   "models_allowed_for": "Allowed for {paths}",
   "models_count": [
     {

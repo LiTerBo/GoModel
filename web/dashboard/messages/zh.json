@@ -1366,6 +1366,7 @@
   "models_collapse_all": "折叠全部分组",
   "models_global_scope_subject": "所有供应商和模型",
   "models_disabled_default": "默认下架",
+  "models_toggle_provider_paused": "该供应商的模型已下架，请先在供应商页上架该供应商。",
   "models_allowed_for": "允许用于 {paths}",
   "models_count": [
     {

@@ -16,6 +16,9 @@
   const rowToggleAriaLabel = $derived(virtualModels.rowToggleAriaLabel(row));
   const rowTogglingKey = $derived(virtualModels.rowTogglingKey);
   const virtualModelsAvailable = $derived(virtualModels.virtualModelsAvailable);
+  // The provider of this row may itself be paused: then this switch has nothing
+  // to change, so it renders disabled and its aria/title explains why.
+  const rowBlocked = $derived(virtualModels.rowToggleBlocked(row));
 </script>
 
 <button
@@ -23,7 +26,7 @@
   class="alias-toggle"
   class:enabled={rowToggleEnabled}
   class:restricted={rowToggleRestricted}
-  disabled={rowTogglingKey === row.key || !virtualModelsAvailable}
+  disabled={rowTogglingKey === row.key || !virtualModelsAvailable || rowBlocked}
   aria-label={rowToggleAriaLabel}
   title={rowToggleAriaLabel}
   onclick={() => virtualModels.toggleRowEnabled(row)}

@@ -16,6 +16,7 @@ import {
   isGroupExpanded,
   rowAccessSelector,
   rowIsManaged,
+  rowToggleBlocked,
   toggleAllGroups,
   toggleGroupOverride,
 } from "./displayRows.js";
@@ -297,9 +298,21 @@ class VirtualModelsStore {
     );
   }
 
+  // rowToggleBlocked: a provider whose provider-scoped policy is off takes its
+  // whole model set off the shelf, so the per-model switch has nothing to
+  // change; the provider group row keeps its own switch (it owns that policy).
+  rowToggleBlocked(row) {
+    return rowToggleBlocked(row, this.modelOverrideViews);
+  }
+
   rowToggleAriaLabel(row) {
     if (!row) {
       return "";
+    }
+    if (this.rowToggleBlocked(row)) {
+      // The provider is paused: say why this switch cannot be used instead of
+      // naming an action that would not change anything.
+      return m.models_toggle_provider_paused();
     }
     let subject;
     if (row.is_alias) {
@@ -323,6 +336,12 @@ class VirtualModelsStore {
       return;
     }
     if (!row || this.rowTogglingKey === row.key) {
+      return;
+    }
+    if (this.rowToggleBlocked(row)) {
+      // The disabled switch already reflects this; the guard keeps a stale
+      // click (or a programmatic call) from writing a policy that cannot act.
+      flash.success(m.models_toggle_provider_paused());
       return;
     }
     if (rowIsManaged(row)) {

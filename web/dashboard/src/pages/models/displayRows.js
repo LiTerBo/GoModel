@@ -252,6 +252,30 @@ export function findModelOverrideView(modelOverrideViews, selector) {
   return null;
 }
 
+// providerServingPaused reports whether a provider's own models are off the
+// shelf: a provider-scoped policy row (selector "<provider>/") with enabled
+// false. Everything under that provider inherits the decision, so a single
+// model switch underneath it cannot express anything the caller can observe.
+export function providerServingPaused(modelOverrideViews, providerName) {
+  const selector = providerOverrideSelector(providerName);
+  if (!selector) {
+    return false;
+  }
+  const override = findModelOverrideView(modelOverrideViews, selector);
+  return Boolean(override) && override.enabled === false;
+}
+
+// rowToggleBlocked marks the leaf rows (models, aliases) whose provider is
+// paused. Rows that own a provider-level policy themselves — the provider group
+// row and the global scope row — stay switchable; blocking the group row would
+// strand a paused provider with no way back from this page.
+export function rowToggleBlocked(row, modelOverrideViews) {
+  if (!row || typeof row.is_alias !== "boolean") {
+    return false;
+  }
+  return providerServingPaused(modelOverrideViews, row.provider_name);
+}
+
 function providerGroupAccess(
   models,
   providerName,
