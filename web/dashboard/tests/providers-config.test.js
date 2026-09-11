@@ -21,6 +21,7 @@ import {
   providerAccessPolicy,
   providerAccessState,
   providerAccessToggleRequest,
+  providerServingToggleState,
   providerModelsRefreshPath,
   providerModelsRefreshSummary,
   mergeProviderRuntime,
@@ -821,4 +822,44 @@ test("providerAccessToggleRequest refuses managed policies and unnamed providers
     null,
   );
   assert.equal(providerAccessToggleRequest([], "", true), null);
+});
+
+// ---- 编辑对话框「模型上架状态」开关的交互态（阶段 A / issue #25）----
+// 登记决定上架开关还能不能点：未登记的供应商没有必要先上架；配置声明的策略
+// 只读；create 模式没有供应商可写策略。
+
+test("providerServingToggleState hides the switch while creating a provider", () => {
+  const state = providerServingToggleState(null, { mode: "create", registered: false });
+  assert.equal(state.visible, false);
+});
+
+test("providerServingToggleState disables the switch for an unregistered provider", () => {
+  const state = providerServingToggleState({ managed: false }, { mode: "edit", registered: false });
+  assert.deepEqual(state, { visible: true, disabled: true, readonly: false, reason: "unregistered" });
+});
+
+test("providerServingToggleState disables the switch when serving controls are unavailable", () => {
+  const state = providerServingToggleState(
+    { managed: false },
+    { mode: "edit", registered: true, available: false },
+  );
+  assert.equal(state.disabled, true);
+  assert.equal(state.reason, "unavailable");
+});
+
+test("providerServingToggleState makes a configuration-managed policy read-only", () => {
+  const state = providerServingToggleState({ managed: true }, { mode: "edit", registered: true });
+  assert.deepEqual(state, { visible: true, disabled: false, readonly: true, reason: "managed" });
+});
+
+test("providerServingToggleState leaves a registered provider switchable", () => {
+  const state = providerServingToggleState({ managed: false }, { mode: "edit", registered: true });
+  assert.deepEqual(state, { visible: true, disabled: false, readonly: false, reason: "" });
+});
+
+test("providerServingToggleState defaults to switchable without a loaded access state", () => {
+  const state = providerServingToggleState(null, { mode: "edit", registered: true });
+  assert.equal(state.visible, true);
+  assert.equal(state.disabled, false);
+  assert.equal(state.readonly, false);
 });
