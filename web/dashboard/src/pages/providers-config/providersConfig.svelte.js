@@ -7,7 +7,7 @@
 //   PUT    /admin/provider-credentials          — upsert one row
 //   DELETE /admin/provider-credentials/{name}   — delete one row
 
-import { errorPayloadMessage } from "$lib/api/client.js";
+import { errorPayloadMessage, getJSON, sendJSON } from "$lib/api/client.js";
 import { loadAdminList, sendAdminMutation } from "$lib/api/adminCrud.js";
 import { confirmDialog } from "$lib/stores/confirm.svelte.js";
 import { flash } from "$lib/stores/flash.svelte.js";
@@ -16,9 +16,12 @@ import { modelsStore } from "$lib/stores/models.svelte.js";
 import {
   defaultProviderCredentialForm,
   filterProviderCredentials,
+  mergeProviderRuntime,
   providerCredentialFormFields,
   providerCredentialRowToForm,
   providerCredentialSchema,
+  providerModelsRefreshPath,
+  providerModelsRefreshSummary,
   resetProviderCredentialFields,
   validateProviderCredentialForm,
   buildProviderCredentialPayload,
@@ -48,16 +51,51 @@ class ProvidersConfigState {
 
   deletingName = $state("");
   deleteSubmitting = $state(false);
+  // Name of the provider whose model list is being re-fetched, empty when no
+  // refresh is in flight.
+  refreshingName = $state("");
 
   // Credential schemas: one per constructible provider type, naming the
   // fields that type accepts.
   types = $state([]);
   typesLoaded = $state(false);
 
+  // Provider rows from GET /admin/providers/status. Discovery facts (how many
+  // models a provider serves, when they were last fetched) belong to the
+  // registry, not to the credential row, so they are fetched alongside and
+  // merged into the rows for display.
+  providerRuntime = $state([]);
+
   #controller = null;
 
+  // rowsWithRuntime are the credential rows carrying their provider's
+  // discovery facts, when the status response has any.
+  get rowsWithRuntime() {
+    return mergeProviderRuntime(this.rows, this.providerRuntime);
+  }
+
   get filteredRows() {
-    return filterProviderCredentials(this.rows, this.filter);
+    return filterProviderCredentials(this.rowsWithRuntime, this.filter);
+  }
+
+  // runtimeFor reports one provider's discovery facts, or null while the
+  // status response has nothing for it.
+  runtimeFor(name) {
+    const target = String(name || "").trim();
+    if (!target) {
+      return null;
+    }
+    const provider = (this.providerRuntime || []).find(
+      (item) => String((item && item.name) || "").trim() === target,
+    );
+    const runtime = provider && provider.runtime;
+    if (!runtime) {
+      return null;
+    }
+    return {
+      discovered_model_count: Number(runtime.discovered_model_count) || 0,
+      last_model_fetch_at: String(runtime.last_model_fetch_at || ""),
+    };
   }
 
   // schema is the selected type's credential form, or null while the schemas
@@ -125,11 +163,62 @@ class ProvidersConfigState {
       if (!this.typesLoaded) {
         await this.fetchTypes();
       }
+      void this.#fetchProviderRuntime();
     } finally {
       if (this.#controller === controller) {
         this.#controller = null;
         this.loading = false;
       }
+    }
+  }
+
+  // #fetchProviderRuntime loads the registry's per-provider discovery facts.
+  // A failure leaves the rows without them rather than failing the page: the
+  // model list itself is served by the credentials endpoint.
+  async #fetchProviderRuntime() {
+    try {
+      const result = await getJSON("/admin/providers/status", {
+        label: "provider status",
+      });
+      if (result.stale || !result.ok) {
+        return;
+      }
+      const providers =
+        result.data && Array.isArray(result.data.providers) ? result.data.providers : [];
+      this.providerRuntime = providers;
+    } catch (e) {
+      console.error("Failed to fetch provider status:", e);
+    }
+  }
+
+  // refreshModels re-fetches one provider's model inventory on demand
+  // (POST /admin/providers/{name}/models/refresh), so a model the upstream
+  // listing just started serving shows up without waiting out the background
+  // refresh interval.
+  async refreshModels(name) {
+    const provider = String(name || "").trim();
+    if (!provider || this.refreshingName) {
+      return;
+    }
+    this.refreshingName = provider;
+    try {
+      const result = await sendJSON(providerModelsRefreshPath(provider), "POST", undefined, {
+        label: "refresh provider models",
+      });
+      if (result.stale) {
+        return;
+      }
+      if (!result.ok) {
+        flash.error(m.providers_refresh_failed({ name: provider }));
+        return;
+      }
+      flash.success(providerModelsRefreshSummary(result.data));
+      this.#refreshInventory();
+    } catch (e) {
+      console.error("Failed to refresh provider models:", e);
+      flash.error(m.providers_refresh_failed({ name: provider }));
+    } finally {
+      this.refreshingName = "";
     }
   }
 
@@ -251,10 +340,12 @@ class ProvidersConfigState {
   }
 
   // Hot-registering a provider changes the live model inventory, so refresh
-  // the shared models store after every successful upsert/delete.
+  // the shared models store after every successful upsert/delete — and re-read
+  // the per-provider discovery facts, which a new or removed provider changes.
   #refreshInventory() {
     modelsStore.fetchModels();
     modelsStore.fetchCategories();
+    void this.#fetchProviderRuntime();
   }
 
   async submitForm() {

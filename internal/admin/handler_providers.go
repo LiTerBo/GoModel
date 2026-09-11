@@ -2,6 +2,7 @@ package admin
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -37,6 +38,86 @@ func (h *Handler) RefreshRuntime(c *echo.Context) error {
 		report.Steps = []RuntimeRefreshStep{}
 	}
 	return c.JSON(http.StatusOK, report)
+}
+
+// providerModelRefreshResponse is the outcome of a manual per-provider model
+// refresh: what the provider serves now, and what this fetch changed.
+type providerModelRefreshResponse struct {
+	Provider   string   `json:"provider"`
+	ModelCount int      `json:"model_count"`
+	Added      []string `json:"added"`
+	Removed    []string `json:"removed"`
+}
+
+// RefreshProviderModels handles POST /admin/providers/:name/models/refresh.
+//
+// It re-fetches one provider's model inventory on demand, so an operator does
+// not have to wait out the background refresh interval (or refresh every other
+// provider) to pick up a model the upstream listing just started serving.
+//
+// @Summary      Refresh one provider's model inventory
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        name  path  string  true  "Provider name"
+// @Success      200  {object}  providerModelRefreshResponse
+// @Failure      400  {object}  core.GatewayError
+// @Failure      401  {object}  core.GatewayError
+// @Failure      502  {object}  core.GatewayError
+// @Failure      503  {object}  core.GatewayError
+// @Router       /admin/providers/{name}/models/refresh [post]
+func (h *Handler) RefreshProviderModels(c *echo.Context) error {
+	name := strings.TrimSpace(c.Param("name"))
+	if name == "" {
+		return handleError(c, core.NewInvalidRequestError("provider name is required", nil))
+	}
+	if h.registry == nil {
+		return handleError(c, featureUnavailableError("provider model refresh is unavailable"))
+	}
+
+	ctx := c.Request().Context()
+	before := h.registry.ModelIDsForProvider(name)
+	if _, err := h.registry.RefreshProviderModels(ctx, name); err != nil {
+		if gatewayErr, ok := errors.AsType[*core.GatewayError](err); ok {
+			return handleError(c, gatewayErr)
+		}
+		return handleError(c, core.NewProviderError("provider_model_refresh", http.StatusInternalServerError, "provider model refresh failed", err))
+	}
+	after := h.registry.ModelIDsForProvider(name)
+
+	// Persist what the operator just fetched so it survives a restart before
+	// the next scheduled refresh. A failed cache write does not fail the
+	// request: the live registry already serves the new inventory.
+	if err := h.registry.SaveToCache(ctx); err != nil {
+		slog.Warn("failed to persist model registry cache after provider refresh",
+			"provider", name,
+			"error", err,
+		)
+	}
+
+	return c.JSON(http.StatusOK, providerModelRefreshResponse{
+		Provider:   name,
+		ModelCount: len(after),
+		Added:      modelIDsNotIn(after, before),
+		Removed:    modelIDsNotIn(before, after),
+	})
+}
+
+// modelIDsNotIn returns the IDs of want that have no counterpart in have, in
+// the order want lists them (both sides come sorted from the registry). The
+// result is never nil, so the JSON payload always carries an array.
+func modelIDsNotIn(want, have []string) []string {
+	haveSet := make(map[string]struct{}, len(have))
+	for _, id := range have {
+		haveSet[id] = struct{}{}
+	}
+	missing := make([]string, 0, len(want))
+	for _, id := range want {
+		if _, ok := haveSet[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	return missing
 }
 
 func (h *Handler) buildProviderStatusResponse() providerStatusResponse {

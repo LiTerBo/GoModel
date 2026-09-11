@@ -90,6 +90,11 @@ func (f *ProviderFactory) CredentialSchemas() []CredentialSchema {
 // credentialSchema builds one provider type's credential form: the fields the
 // registration declares, or the plain API-key shape derived from its discovery
 // flags, plus the model list every provider type accepts.
+//
+// The model list is offered up front rather than folded into the advanced
+// section: it is the operator's say over model discovery (pin the ones this
+// provider should serve, or add one the upstream listing does not advertise
+// yet), which is a discovery decision rather than a type-specific detail.
 func credentialSchema(providerType string, spec DiscoveryConfig) CredentialSchema {
 	fields := spec.CredentialFields
 	if len(fields) == 0 {
@@ -104,7 +109,7 @@ func credentialSchema(providerType string, spec DiscoveryConfig) CredentialSchem
 			break
 		}
 	}
-	schema.Fields = append(schema.Fields, CredentialField{Name: CredentialFieldModels, Advanced: true})
+	schema.Fields = append(schema.Fields, CredentialField{Name: CredentialFieldModels})
 	return schema
 }
 

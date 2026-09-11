@@ -1247,7 +1247,7 @@
   "providers_service_account_json": "服务账号 JSON",
   "providers_service_account_json_base64": "服务账号 JSON（base64）",
   "providers_gcp_scope": "GCP 作用域",
-  "providers_models_field": "模型（逗号分隔）",
+  "providers_models_field": "模型发现",
   "providers_api_keys_hint": "默认情况下，已识别的会话固定使用同一密钥，以提高供应商提示词缓存的命中率。已保存的值会以掩码显示；保持星号不变即可保留已存储的密钥。",
   "providers_session_sticky_hint": "将每个已识别的会话固定在同一 API 密钥上，以保持供应商提示词缓存的亲和性。关闭后，每次请求都会以轮询方式切换密钥。",
   "providers_api_version_hint": "留空则使用供应商默认值。Realtime 端点可能需要更新的版本。",
@@ -1257,7 +1257,40 @@
   "providers_service_account_file_hint": "网关进程可读取的路径。",
   "providers_service_account_json_hint": "已保存的值会以打码形式显示；保持星号不变即可保留存储的值，清空则表示移除。",
   "providers_service_account_json_base64_hint": "已保存的值会以打码形式显示；保持星号不变即可保留存储的值。",
-  "providers_models_hint": "留空则自动从供应商的 /models 端点发现模型（如受支持）。",
+  "providers_models_hint": "留空则自动从供应商的 /models 端点发现模型；填写后这些模型 ID 会补充到该供应商——是合并、替换，还是仅作回退，由 config.yaml 的 models.configured_provider_models_mode 决定。",
+  "providers_discovery_auto": "自动发现（来自供应商的 /models 端点）",
+  "providers_discovery_manual": [
+    {
+      "declarations": [
+        "input count"
+      ],
+      "match": {
+        "*": "自动发现，另有 {count} 个手动指定模型"
+      }
+    }
+  ],
+  "providers_discovery_state": "当前生效方式",
+  "providers_discovered_models": "已发现 {count} 个",
+  "providers_last_fetch": "获取于 {time}",
+  "providers_never_fetched": "尚未获取",
+  "providers_refresh_action": "刷新 {name} 的模型列表",
+  "providers_refreshing_action": "正在刷新 {name} 的模型列表",
+  "providers_refresh_ok": [
+    {
+      "declarations": [
+        "input count"
+      ],
+      "match": {
+        "*": "“{name}” 已刷新：共 {count} 个模型"
+      }
+    }
+  ],
+  "providers_refresh_added": "新增 {models}",
+  "providers_refresh_removed": "移除 {models}",
+  "providers_refresh_unchanged": "无变化",
+  "providers_refresh_truncated": "另有 {count} 个",
+  "providers_refresh_failed": "刷新供应商 “{name}” 的模型列表失败。",
+  "providers_refresh_hint": "立即从上游获取该供应商的模型列表，无需等待后台刷新周期。",
   "providers_default_value": "默认为 {value}",
   "providers_keys_count": [
     {

@@ -57,6 +57,7 @@ func TestRequireGlobalScope(t *testing.T) {
 		wantCode   string
 	}{
 		{name: "scoped credential denied on gateway-wide route", method: http.MethodGet, path: "/admin/providers/status", scope: scopeAlpha, wantStatus: http.StatusForbidden, wantCode: codeAdminScopeDenied},
+		{name: "scoped credential denied on provider model refresh", method: http.MethodPost, path: "/admin/providers/deepseek/models/refresh", scope: scopeAlpha, wantStatus: http.StatusForbidden, wantCode: codeAdminScopeDenied},
 		{name: "scoped credential denied on workflows", method: http.MethodGet, path: "/admin/workflows", scope: scopeAlpha, wantStatus: http.StatusForbidden, wantCode: codeAdminScopeDenied},
 		{name: "scoped credential denied on reset all", method: http.MethodPost, path: "/admin/budgets/reset", scope: scopeAlpha, wantStatus: http.StatusForbidden, wantCode: codeAdminScopeDenied},
 		{name: "scoped credential denied on usage throughput", method: http.MethodGet, path: "/admin/usage/throughput", scope: scopeAlpha, wantStatus: http.StatusForbidden, wantCode: codeAdminScopeDenied},

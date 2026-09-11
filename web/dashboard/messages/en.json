@@ -1297,7 +1297,7 @@
   "providers_service_account_json": "Service Account JSON",
   "providers_service_account_json_base64": "Service Account JSON (base64)",
   "providers_gcp_scope": "GCP Scope",
-  "providers_models_field": "Models (comma-separated)",
+  "providers_models_field": "Model discovery",
   "providers_api_keys_hint": "Identified sessions stay on one key by default, improving provider prompt-cache hits. Saved values are masked; leave the asterisks unchanged to keep the stored key.",
   "providers_session_sticky_hint": "Keep each identified conversation on one API key to preserve provider prompt-cache affinity. Turn off to rotate keys round-robin on every request.",
   "providers_api_version_hint": "Leave empty for the provider default. Realtime endpoints may need a newer version.",
@@ -1307,7 +1307,50 @@
   "providers_service_account_file_hint": "Path readable by the gateway process.",
   "providers_service_account_json_hint": "Saved values are masked; leave the asterisks unchanged to keep the stored value, or clear it to remove.",
   "providers_service_account_json_base64_hint": "Saved values are masked; leave the asterisks unchanged to keep the stored value.",
-  "providers_models_hint": "Leave empty to auto-discover models from the provider's /models endpoint where supported.",
+  "providers_models_hint": "Leave empty to auto-discover models from the provider's /models endpoint. Filled in, these model IDs are added to this provider — whether they merge into, replace, or only back up the discovered list comes from config.yaml models.configured_provider_models_mode.",
+  "providers_discovery_auto": "Auto-discovered from the provider's /models endpoint",
+  "providers_discovery_manual": [
+    {
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
+      "match": {
+        "count_plural=one": "Auto-discovered, plus {count} configured model",
+        "count_plural=*": "Auto-discovered, plus {count} configured models"
+      }
+    }
+  ],
+  "providers_discovery_state": "Currently in effect",
+  "providers_discovered_models": "discovered: {count}",
+  "providers_last_fetch": "fetched {time}",
+  "providers_never_fetched": "never fetched",
+  "providers_refresh_action": "Refresh model list for {name}",
+  "providers_refreshing_action": "Refreshing {name} model list",
+  "providers_refresh_ok": [
+    {
+      "declarations": [
+        "input count",
+        "local count_plural = count: plural"
+      ],
+      "selectors": [
+        "count_plural"
+      ],
+      "match": {
+        "count_plural=one": "\"{name}\" refreshed: {count} model",
+        "count_plural=*": "\"{name}\" refreshed: {count} models"
+      }
+    }
+  ],
+  "providers_refresh_added": "added {models}",
+  "providers_refresh_removed": "removed {models}",
+  "providers_refresh_unchanged": "no changes",
+  "providers_refresh_truncated": "and {count} more",
+  "providers_refresh_failed": "Failed to refresh the model list for \"{name}\".",
+  "providers_refresh_hint": "Fetch this provider's model list from upstream now, instead of waiting for the background refresh interval.",
   "providers_default_value": "Defaults to {value}",
   "providers_keys_count": [
     {
