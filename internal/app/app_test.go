@@ -488,6 +488,30 @@ func TestDashboardRuntimeConfig_ExposesDemoMode(t *testing.T) {
 	}
 }
 
+// The Providers page renders a provider-wide model availability switch, so the
+// dashboard has to know whether a provider with no access policy ships on or off.
+func TestDashboardRuntimeConfig_ExposesModelsEnabledByDefault(t *testing.T) {
+	cfg := &config.Config{
+		Models: config.ModelsConfig{EnabledByDefault: true},
+	}
+
+	values := dashboardRuntimeConfig(cfg, false, false, false)
+	if got := values.ModelsEnabledByDefault; got != "on" {
+		t.Fatalf("dashboardRuntimeConfig()[%q] = %q, want on", admin.DashboardConfigModelsEnabledDefault, got)
+	}
+}
+
+func TestDashboardRuntimeConfig_ReportsModelsDisabledByDefault(t *testing.T) {
+	cfg := &config.Config{
+		Models: config.ModelsConfig{EnabledByDefault: false},
+	}
+
+	values := dashboardRuntimeConfig(cfg, false, false, false)
+	if got := values.ModelsEnabledByDefault; got != "off" {
+		t.Fatalf("dashboardRuntimeConfig()[%q] = %q, want off", admin.DashboardConfigModelsEnabledDefault, got)
+	}
+}
+
 func TestDashboardRuntimeConfig_FailoverDisabled(t *testing.T) {
 	cfg := &config.Config{
 		Failover: config.FailoverConfig{

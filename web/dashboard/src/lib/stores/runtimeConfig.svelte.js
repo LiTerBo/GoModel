@@ -24,6 +24,7 @@ const CONFIG_KEYS = [
   "MCP_ENABLED",
   "VIRTUAL_MODEL_STRATEGIES",
   "USER_PATH_HEADER",
+  "MODELS_ENABLED_BY_DEFAULT",
 ];
 
 // Strategies every gateway supports; used when the backend predates the
@@ -67,6 +68,15 @@ class RuntimeConfigStore {
   // config has not loaded; callers fall back to the default name.
   userPathHeader() {
     return String((this.config && this.config.USER_PATH_HEADER) || "").trim();
+  }
+
+  // modelsEnabledByDefault is models.enabled_by_default: whether a provider
+  // model with no access policy is available. The Providers page renders a
+  // provider-wide availability switch, so it needs the deployment default to
+  // show a policy-less provider honestly. A backend that predates the key
+  // falls back to on, which is the configuration default.
+  modelsEnabledByDefault() {
+    return this.booleanFlag("MODELS_ENABLED_BY_DEFAULT", true);
   }
 
   // cacheVisible is a tri-source gate: an explicit CACHE_ENABLED wins;

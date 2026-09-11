@@ -3,10 +3,12 @@
   // Provider credential table. Managed rows (declared in config.yaml or env
   // vars) show a Config badge and expose no edit/delete actions — but every
   // row can re-fetch its model list, so the actions column is always shown.
+  // The Enabled column is the provider-wide model availability switch.
   import TableActionButton from "$lib/components/atoms/TableActionButton.svelte";
   import Icon from "$lib/components/atoms/Icon.svelte";
   import { timezone } from "$lib/stores/timezone.svelte.js";
   import { providersConfig } from "./providersConfig.svelte.js";
+  import ProviderAccessToggle from "./ProviderAccessToggle.svelte";
   import {
     providerCredentialAuthLabel,
     providerModelsCell,
@@ -49,11 +51,10 @@
           <td>{providerCredentialAuthLabel(row)}</td>
           <td>{providerModelsCell(row, formatFetchedAt)}</td>
           <td>
-            <span
-              class="auth-key-status-badge"
-              class:auth-key-status-active={row.enabled}
-              class:auth-key-status-inactive={!row.enabled}
-              >{row.enabled ? m.common_enabled() : m.common_disabled()}</span>
+            <!-- The Enabled column is an availability switch for every model
+                 this provider serves (a provider-scoped access policy), not the
+                 credential's own enabled flag, which the editor owns. -->
+            <ProviderAccessToggle {row} />
           </td>
           <td>{timezone.formatTimestamp(row.updated_at)}</td>
           <td class="col-actions">
