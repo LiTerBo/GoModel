@@ -14,6 +14,12 @@ import {
   providerCredentialFieldMeta,
   providerCredentialAuthLabel,
   providerCredentialModelsLabel,
+  providerDiscoveryLabel,
+  providerDiscoveryState,
+  providerModelsCell,
+  providerModelsRefreshPath,
+  providerModelsRefreshSummary,
+  mergeProviderRuntime,
   providerCredentialKeysToRows,
   providerCredentialKeyRowsToArray,
   suggestProviderCredentialName,
@@ -22,7 +28,6 @@ import {
   resetProviderCredentialFields,
   validateProviderCredentialForm,
   buildProviderCredentialPayload,
-  providerRowsHaveActions,
 } from "../src/pages/providers-config/providersConfigLogic.js";
 
 // Schemas shaped like GET /admin/provider-credentials/types serves them.
@@ -33,7 +38,7 @@ const OPENAI_SCHEMA = {
     { name: "api_keys", required: true, advanced: false },
     { name: "base_url", required: false, advanced: true },
     { name: "session_sticky_keys", required: false, advanced: true },
-    { name: "models", required: false, advanced: true },
+    { name: "models", required: false, advanced: false },
   ],
 };
 
@@ -44,7 +49,7 @@ const AZURE_SCHEMA = {
     { name: "base_url", required: true, advanced: false },
     { name: "api_version", required: false, advanced: false },
     { name: "session_sticky_keys", required: false, advanced: true },
-    { name: "models", required: false, advanced: true },
+    { name: "models", required: false, advanced: false },
   ],
 };
 
@@ -56,7 +61,7 @@ const VERTEX_SCHEMA = {
     { name: "vertex_location", required: false, advanced: false },
     { name: "service_account_json", required: false, advanced: false },
     { name: "base_url", required: false, advanced: true },
-    { name: "models", required: false, advanced: true },
+    { name: "models", required: false, advanced: false },
   ],
 };
 
@@ -219,11 +224,11 @@ test("service_account_json is sent verbatim while other fields are trimmed", () 
 test("providerCredentialFormFields splits a schema into primary and advanced", () => {
   const { primary, advanced } = providerCredentialFormFields(OPENAI_SCHEMA);
 
-  assert.deepEqual(primary.map((field) => field.name), ["api_keys"]);
+  // The model list stays up front: it is the operator's say over discovery.
+  assert.deepEqual(primary.map((field) => field.name), ["api_keys", "models"]);
   assert.deepEqual(advanced.map((field) => field.name), [
     "base_url",
     "session_sticky_keys",
-    "models",
   ]);
   assert.equal(primary[0].required, true);
   assert.equal(primary[0].label, "API Keys");
@@ -561,12 +566,140 @@ test("splitCommaList trims and drops empties", () => {
   assert.deepEqual(splitCommaList(""), []);
 });
 
-test("providerRowsHaveActions is false when every provider is managed", () => {
-  assert.equal(providerRowsHaveActions([]), false);
-  assert.equal(providerRowsHaveActions([{ name: "openai", managed: true }]), false);
+test("providerDiscoveryLabel names how a provider's models are decided", () => {
+  assert.equal(providerDiscoveryLabel({}), "Auto-discovered from the provider's /models endpoint");
   assert.equal(
-    providerRowsHaveActions([{ name: "openai", managed: true }, { name: "mine", managed: false }]),
-    true,
+    providerDiscoveryLabel({ models: [] }),
+    "Auto-discovered from the provider's /models endpoint",
   );
-  assert.equal(providerRowsHaveActions(undefined), false);
+  assert.equal(
+    providerDiscoveryLabel({ models: ["gpt-4o"] }),
+    "Auto-discovered, plus 1 configured model",
+  );
+  assert.equal(
+    providerDiscoveryLabel({ models: ["gpt-4o", "gpt-4o-mini"] }),
+    "Auto-discovered, plus 2 configured models",
+  );
+});
+
+test("providerModelsRefreshPath encodes the provider name", () => {
+  assert.equal(
+    providerModelsRefreshPath("deepseek"),
+    "/admin/providers/deepseek/models/refresh",
+  );
+  assert.equal(
+    providerModelsRefreshPath(" my openai "),
+    "/admin/providers/my%20openai/models/refresh",
+  );
+});
+
+test("mergeProviderRuntime attaches discovery facts by provider name", () => {
+  const rows = [
+    { name: "deepseek", type: "deepseek" },
+    { name: "gone", type: "openai" },
+  ];
+  const merged = mergeProviderRuntime(rows, [
+    {
+      name: "deepseek",
+      runtime: {
+        discovered_model_count: 2,
+        last_model_fetch_at: "2026-09-11T03:59:59Z",
+      },
+    },
+    { name: "unrelated", runtime: { discovered_model_count: 9 } },
+  ]);
+
+  assert.equal(merged[0].discovered_model_count, 2);
+  assert.equal(merged[0].last_model_fetch_at, "2026-09-11T03:59:59Z");
+  // A provider the status response does not know keeps its credential row
+  // exactly as it was.
+  assert.deepEqual(merged[1], { name: "gone", type: "openai" });
+});
+
+test("mergeProviderRuntime leaves rows alone without any runtime payload", () => {
+  const rows = [{ name: "deepseek" }];
+  assert.deepEqual(mergeProviderRuntime(rows, []), rows);
+  assert.deepEqual(mergeProviderRuntime(rows, undefined), rows);
+  assert.deepEqual(mergeProviderRuntime(undefined, [{ name: "deepseek" }]), []);
+});
+
+test("providerModelsCell reports discovery, count and last fetch", () => {
+  const formatTime = (value) => `at ${value}`;
+
+  assert.equal(
+    providerModelsCell(
+      {
+        models: [],
+        discovered_model_count: 2,
+        last_model_fetch_at: "2026-09-11T03:59:59Z",
+      },
+      formatTime,
+    ),
+    "auto-discovered · discovered: 2 · fetched at 2026-09-11T03:59:59Z",
+  );
+  assert.equal(
+    providerModelsCell({ models: ["gpt-4o"], discovered_model_count: 1 }, formatTime),
+    "1 model · discovered: 1 · never fetched",
+  );
+  // Without the runtime facts the cell still says how models are decided.
+  assert.equal(providerModelsCell({ models: [] }), "auto-discovered");
+});
+
+test("providerModelsRefreshSummary names what changed", () => {
+  assert.equal(
+    providerModelsRefreshSummary({
+      provider: "deepseek",
+      model_count: 2,
+      added: ["deepseek-flash"],
+      removed: [],
+    }),
+    '"deepseek" refreshed: 2 models · added deepseek-flash',
+  );
+  assert.equal(
+    providerModelsRefreshSummary({
+      provider: "deepseek",
+      model_count: 1,
+      added: [],
+      removed: ["deepseek-v4-flash"],
+    }),
+    '"deepseek" refreshed: 1 model · removed deepseek-v4-flash',
+  );
+  assert.equal(
+    providerModelsRefreshSummary({ provider: "deepseek", model_count: 1 }),
+    '"deepseek" refreshed: 1 model · no changes',
+  );
+});
+
+test("providerModelsRefreshSummary counts the models it does not name", () => {
+  const summary = providerModelsRefreshSummary({
+    provider: "oMLX",
+    model_count: 8,
+    added: ["m1", "m2", "m3", "m4", "m5", "m6", "m7"],
+    removed: [],
+  });
+
+  assert.equal(
+    summary,
+    '"oMLX" refreshed: 8 models · added m1, m2, m3, m4, m5, and 2 more',
+  );
+});
+
+test("providerDiscoveryState describes a stored provider, or nothing while creating", () => {
+  const formatTime = (value) => `at ${value}`;
+
+  assert.equal(providerDiscoveryState(null, null, formatTime), null);
+  assert.equal(providerDiscoveryState({ models: [] }, null, formatTime), null);
+  assert.equal(
+    providerDiscoveryState(
+      { name: "deepseek", models: [] },
+      { discovered_model_count: 2, last_model_fetch_at: "2026-09-11T03:59:59Z" },
+      formatTime,
+    ),
+    "Auto-discovered from the provider's /models endpoint · discovered: 2 · fetched at 2026-09-11T03:59:59Z",
+  );
+  // A provider the status response has not reported yet still states the mode.
+  assert.equal(
+    providerDiscoveryState({ name: "deepseek", models: ["gpt-4o"] }, null, formatTime),
+    "Auto-discovered, plus 1 configured model",
+  );
 });

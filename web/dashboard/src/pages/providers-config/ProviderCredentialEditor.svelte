@@ -7,13 +7,17 @@
   // Everything below Name is rendered from the selected type's credential
   // schema, so an operator only ever sees the fields that type actually uses.
   import EnabledToggle from "$lib/components/atoms/EnabledToggle.svelte";
+  import Icon from "$lib/components/atoms/Icon.svelte";
   import EditorDialog from "$lib/components/organisms/EditorDialog.svelte";
   import ProviderCredentialField from "./ProviderCredentialField.svelte";
   import { providersConfig } from "./providersConfig.svelte.js";
   import {
     providerCredentialTypeOptions,
+    providerDiscoveryState,
     suggestProviderCredentialName,
   } from "./providersConfigLogic.js";
+  import { timezone } from "$lib/stores/timezone.svelte.js";
+  import { RefreshCw } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
 
   const typeOptions = $derived(
@@ -22,6 +26,29 @@
   const fields = $derived(providersConfig.formFields);
   const nameError = $derived(providersConfig.fieldErrors.name || "");
   const typeError = $derived(providersConfig.fieldErrors.type || "");
+
+  // Bound here rather than passed as a reference: the store's formatter reads
+  // `this`, so a bare reference would lose its receiver.
+  const formatFetchedAt = (value) => timezone.formatTimestamp(value);
+
+  // The stored row is what "currently in effect" describes: the form may hold
+  // an unsaved model list, and only a save changes what the gateway serves.
+  const storedRow = $derived(
+    providersConfig.rows.find(
+      (row) =>
+        String((row && row.name) || "").trim() ===
+        String(providersConfig.form.name || "").trim(),
+    ) || null,
+  );
+  const discoveryState = $derived(
+    providersConfig.formMode === "edit"
+      ? providerDiscoveryState(
+          storedRow,
+          providersConfig.runtimeFor(storedRow && storedRow.name),
+          formatFetchedAt,
+        )
+      : null,
+  );
 
   // onTypeChange resets the Name field to a fresh suggestion whenever the
   // Type selection changes while creating a provider (Type is immutable once
@@ -130,6 +157,24 @@
   {#each fields.primary as field (field.name)}
     <ProviderCredentialField {field} />
   {/each}
+
+  {#if discoveryState}
+    <div class="form-field">
+      <span class="form-field-label">{m.providers_discovery_state()}</span>
+      <p class="form-hint" id="provider-credential-discovery-state">{discoveryState}</p>
+      <button
+        type="button"
+        class="btn btn-with-icon"
+        disabled={Boolean(providersConfig.refreshingName)}
+        aria-describedby="provider-credential-discovery-state"
+        onclick={() => providersConfig.refreshModels(providersConfig.form.name)}
+      >
+        <Icon icon={RefreshCw} class="form-action-icon" />
+        <span>{m.providers_refresh_action({ name: providersConfig.form.name })}</span>
+      </button>
+      <small class="form-hint">{m.providers_refresh_hint()}</small>
+    </div>
+  {/if}
 
   <div class="vm-status-row">
     <div class="vm-status-toggle">

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1648,6 +1649,57 @@ func TestListModelsWithProvider_Empty(t *testing.T) {
 	models := registry.ListModelsWithProvider()
 	if len(models) != 0 {
 		t.Errorf("expected empty slice, got %d models", len(models))
+	}
+}
+
+func TestModelIDsForProvider_ReturnsSortedIDsOfOneProvider(t *testing.T) {
+	registry := NewModelRegistry()
+	alpha := &registryMockProvider{modelsResponse: &core.ModelsResponse{
+		Object: "list",
+		Data: []core.Model{
+			{ID: "zebra-model", Object: "model"},
+			{ID: "alpha-model", Object: "model"},
+		},
+	}}
+	other := &registryMockProvider{modelsResponse: &core.ModelsResponse{
+		Object: "list",
+		Data:   []core.Model{{ID: "other-model", Object: "model"}},
+	}}
+	registry.RegisterProviderWithType(alpha, "alpha")
+	registry.RegisterProviderWithType(other, "other")
+	if err := registry.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	got := registry.ModelIDsForProvider("alpha")
+	if want := []string{"alpha-model", "zebra-model"}; !slices.Equal(got, want) {
+		t.Errorf("ModelIDsForProvider(alpha) = %v, want %v", got, want)
+	}
+	// One provider's IDs never leak into another's.
+	if got := registry.ModelIDsForProvider("other"); !slices.Equal(got, []string{"other-model"}) {
+		t.Errorf("ModelIDsForProvider(other) = %v, want [other-model]", got)
+	}
+}
+
+func TestModelIDsForProvider_UnknownOrBlankNameIsEmpty(t *testing.T) {
+	registry := NewModelRegistry()
+	registry.RegisterProviderWithType(&registryMockProvider{modelsResponse: &core.ModelsResponse{
+		Object: "list",
+		Data:   []core.Model{{ID: "model-a", Object: "model"}},
+	}}, "alpha")
+	if err := registry.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	for _, name := range []string{"", "   ", "missing"} {
+		got := registry.ModelIDsForProvider(name)
+		if got == nil {
+			t.Errorf("ModelIDsForProvider(%q) = nil, want an empty slice", name)
+			continue
+		}
+		if len(got) != 0 {
+			t.Errorf("ModelIDsForProvider(%q) = %v, want empty", name, got)
+		}
 	}
 }
 

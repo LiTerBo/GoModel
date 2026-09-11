@@ -3,6 +3,7 @@ package providers
 import (
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/enterpilot/gomodel/internal/core"
 )
@@ -256,6 +257,29 @@ func (r *ModelRegistry) ListModelsWithProvider() []ModelWithProvider {
 
 	r.sortedModelsWithProvider = result
 	return append([]ModelWithProvider(nil), result...)
+}
+
+// ModelIDsForProvider returns the sorted IDs of one provider's discovered
+// models, empty when the provider serves none. It reads the published
+// inventory — the same map the provider runtime snapshot counts — so a caller
+// can take a before/after pair around RefreshProviderModels and name what a
+// manual refresh added or removed.
+func (r *ModelRegistry) ModelIDsForProvider(providerName string) []string {
+	providerName = strings.TrimSpace(providerName)
+	if providerName == "" {
+		return []string{}
+	}
+
+	r.mu.RLock()
+	providerModels := r.modelsByProvider[providerName]
+	ids := make([]string, 0, len(providerModels))
+	for modelID := range providerModels {
+		ids = append(ids, modelID)
+	}
+	r.mu.RUnlock()
+
+	sort.Strings(ids)
+	return ids
 }
 
 // cacheableCategory reports whether category is a known value that should be cached.

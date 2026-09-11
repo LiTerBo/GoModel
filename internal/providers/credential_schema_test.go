@@ -44,8 +44,9 @@ func TestCredentialSchemas_DerivesTheFormFromDiscoveryFlags(t *testing.T) {
 			spec:     DiscoveryConfig{DefaultBaseURL: "https://api.example.com/v1"},
 			fields:   []string{"api_keys", "base_url", "session_sticky_keys", "models"},
 			required: []string{"api_keys"},
-			// Nothing else to configure once the key is filled in.
-			advanced: []string{"base_url", "session_sticky_keys", "models"},
+			// Nothing else to configure once the key is filled in; models
+			// stays up front because it steers discovery.
+			advanced: []string{"base_url", "session_sticky_keys"},
 		},
 		{
 			name:     "keyless",
@@ -53,14 +54,14 @@ func TestCredentialSchemas_DerivesTheFormFromDiscoveryFlags(t *testing.T) {
 			fields:   []string{"api_keys", "base_url", "session_sticky_keys", "models"},
 			required: nil,
 			// With no key to fill in, the endpoint is the configuration.
-			advanced: []string{"session_sticky_keys", "models"},
+			advanced: []string{"session_sticky_keys"},
 		},
 		{
 			name:     "an endpoint the operator must name",
 			spec:     DiscoveryConfig{RequireBaseURL: true, SupportsAPIVersion: true},
 			fields:   []string{"api_keys", "base_url", "api_version", "session_sticky_keys", "models"},
 			required: []string{"api_keys", "base_url"},
-			advanced: []string{"session_sticky_keys", "models"},
+			advanced: []string{"session_sticky_keys"},
 		},
 	}
 
@@ -130,5 +131,29 @@ func TestCredentialSchemas_UsesTheRegistrationsDeclaredForm(t *testing.T) {
 	authType, _ := schema.Field(CredentialFieldAuthType)
 	if len(authType.Options) != 2 {
 		t.Errorf("auth_type.Options = %v, want the two declared values", authType.Options)
+	}
+}
+
+// The model list is the operator's control over discovery, so every type
+// offers it up front rather than behind the advanced disclosure.
+func TestCredentialSchemas_OffersModelsUpFront(t *testing.T) {
+	factory := schemaTestFactory(t, map[string]DiscoveryConfig{
+		"keyed":    {},
+		"keyless":  {AllowAPIKeyless: true},
+		"endpoint": {RequireBaseURL: true, SupportsAPIVersion: true},
+		"google": {
+			CredentialFields: []CredentialField{{Name: CredentialFieldVertexProject}},
+		},
+	})
+
+	for _, schema := range factory.CredentialSchemas() {
+		field, ok := schema.Field(CredentialFieldModels)
+		if !ok {
+			t.Errorf("%s: does not accept a model list", schema.Type)
+			continue
+		}
+		if field.Advanced {
+			t.Errorf("%s: models.Advanced = true, want the field up front", schema.Type)
+		}
 	}
 }

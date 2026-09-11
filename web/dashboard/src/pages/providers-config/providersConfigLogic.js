@@ -305,6 +305,134 @@ export function providerCredentialModelsLabel(row) {
   return m.providers_models_count({ count: models.length });
 }
 
+// providerDiscoveryLabel names how this provider's model list is decided. The
+// stored row is the whole input: with nothing configured, the upstream listing
+// is the answer.
+export function providerDiscoveryLabel(row) {
+  const models = Array.isArray(row && row.models) ? row.models : [];
+  if (models.length === 0) {
+    return m.providers_discovery_auto();
+  }
+  return m.providers_discovery_manual({ count: models.length });
+}
+
+// providerDiscoveryState summarizes, for the editor, how a stored provider's
+// models are decided today and when they were last fetched. It returns null
+// while creating: nothing is stored yet to describe.
+export function providerDiscoveryState(row, runtime, formatTime = (value) => String(value || "")) {
+  if (!row || !String(row.name || "").trim()) {
+    return null;
+  }
+  const parts = [providerDiscoveryLabel(row)];
+  if (runtime) {
+    parts.push(
+      m.providers_discovered_models({ count: Number(runtime.discovered_model_count) || 0 }),
+    );
+    const fetchedAt = String(runtime.last_model_fetch_at || "").trim();
+    parts.push(
+      fetchedAt
+        ? m.providers_last_fetch({ time: formatTime(fetchedAt) })
+        : m.providers_never_fetched(),
+    );
+  }
+  return parts.join(" · ");
+}
+
+// DISCOVERY_SUMMARY_LIMIT bounds how many model IDs a refresh message names
+// before it counts the rest, so the flash line stays one line.
+export const DISCOVERY_SUMMARY_LIMIT = 5;
+
+// providerModelsRefreshPath is the admin endpoint that re-fetches one
+// provider's model inventory on demand.
+export function providerModelsRefreshPath(name) {
+  return `/admin/providers/${encodeURIComponent(String(name || "").trim())}/models/refresh`;
+}
+
+// mergeProviderRuntime attaches the registry's discovery facts for each row:
+// how many models the provider currently serves, and when they were last
+// fetched. Rows without a matching runtime entry are left untouched, so the
+// list can render before (or without) the status response.
+export function mergeProviderRuntime(rows, providers) {
+  const list = Array.isArray(rows) ? rows : [];
+  const runtimeByName = new Map();
+  for (const provider of Array.isArray(providers) ? providers : []) {
+    const name = String((provider && provider.name) || "").trim();
+    if (name) {
+      runtimeByName.set(name, (provider && provider.runtime) || {});
+    }
+  }
+  if (runtimeByName.size === 0) {
+    return list;
+  }
+  return list.map((row) => {
+    const runtime = runtimeByName.get(String((row && row.name) || "").trim());
+    if (!runtime) {
+      return row;
+    }
+    return {
+      ...row,
+      discovered_model_count: Number(runtime.discovered_model_count) || 0,
+      last_model_fetch_at: String(runtime.last_model_fetch_at || ""),
+    };
+  });
+}
+
+// providerModelsCell reports discovery at a glance: how models are decided,
+// how many the provider serves, and when they were last fetched. formatTime is
+// injected so this stays free of the timezone store.
+export function providerModelsCell(row, formatTime = (value) => String(value || "")) {
+  const parts = [providerCredentialModelsLabel(row)];
+  if (!row || row.discovered_model_count === undefined) {
+    return parts.join(" · ");
+  }
+  parts.push(
+    m.providers_discovered_models({ count: Number(row.discovered_model_count) || 0 }),
+  );
+  const fetchedAt = String(row.last_model_fetch_at || "").trim();
+  parts.push(
+    fetchedAt
+      ? m.providers_last_fetch({ time: formatTime(fetchedAt) })
+      : m.providers_never_fetched(),
+  );
+  return parts.join(" · ");
+}
+
+// providerModelsChangeList renders model IDs for a refresh message, naming at
+// most DISCOVERY_SUMMARY_LIMIT of them and counting the rest.
+function providerModelsChangeList(ids) {
+  const list = (Array.isArray(ids) ? ids : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  if (list.length <= DISCOVERY_SUMMARY_LIMIT) {
+    return list.join(", ");
+  }
+  return [
+    ...list.slice(0, DISCOVERY_SUMMARY_LIMIT),
+    m.providers_refresh_truncated({ count: list.length - DISCOVERY_SUMMARY_LIMIT }),
+  ].join(", ");
+}
+
+// providerModelsRefreshSummary reports what a manual refresh did, in one line:
+// how many models the provider serves now and which ones moved.
+export function providerModelsRefreshSummary(result) {
+  const name = String((result && result.provider) || "").trim();
+  const count = Number((result && result.model_count) || 0);
+  const added = providerModelsChangeList(result && result.added);
+  const removed = providerModelsChangeList(result && result.removed);
+
+  const parts = [m.providers_refresh_ok({ name, count })];
+  if (added) {
+    parts.push(m.providers_refresh_added({ models: added }));
+  }
+  if (removed) {
+    parts.push(m.providers_refresh_removed({ models: removed }));
+  }
+  if (!added && !removed) {
+    parts.push(m.providers_refresh_unchanged());
+  }
+  return parts.join(" · ");
+}
+
 // providerCredentialKeysToRows converts a stored api_keys array (usually all
 // "***********" masks) into editable {value} rows.
 export function providerCredentialKeysToRows(apiKeys) {
@@ -517,11 +645,4 @@ function providerCredentialPayloadValue(form, name) {
     default:
       return String((form && form[name]) || "").trim();
   }
-}
-
-// providerRowsHaveActions reports whether any listed provider can be edited
-// or deleted. Managed rows (config.yaml or env) never can, so a deployment
-// with only managed providers has no use for an actions column.
-export function providerRowsHaveActions(rows) {
-  return (Array.isArray(rows) ? rows : []).some((row) => row && !row.managed);
 }
