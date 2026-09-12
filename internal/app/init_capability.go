@@ -11,6 +11,11 @@ import (
 // replays them into the model registry, so confirmed verdicts survive
 // restarts. It needs only storage and the registry (built by initProviders),
 // and must run before initAdmin wires the confirmation endpoint.
+//
+// This phase is why confirmations also survive configuration reloads: run.Run
+// rebuilds the whole application per configuration generation, so every
+// generation runs the phase again and replays into the registry it just built.
+// Keep it in phases() and keep it after initProviders.
 func (b *bootstrap) initCapabilities() error {
 	app := b.app
 
