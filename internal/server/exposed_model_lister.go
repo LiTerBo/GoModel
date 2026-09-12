@@ -23,6 +23,14 @@ type UserPathExposedModelLister interface {
 	ExposedModelsForUserPath(userPath string, allow func(core.ModelSelector) bool) []core.Model
 }
 
+// NamedUserPathExposedModelLister is UserPathExposedModelLister plus a name
+// predicate: a caller that may address a redirect by name (an allowlist naming
+// the alias rather than its concrete targets) sees it without any target being
+// permitted.
+type NamedUserPathExposedModelLister interface {
+	ExposedModelsForUserPathNamed(userPath string, allow func(core.ModelSelector) bool, allowName func(string) bool) []core.Model
+}
+
 func mergeExposedModelsResponse(base *core.ModelsResponse, exposed []core.Model) *core.ModelsResponse {
 	if base == nil {
 		base = &core.ModelsResponse{Object: "list", Data: []core.Model{}}

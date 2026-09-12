@@ -809,6 +809,7 @@ var _ interface {
 	ExposedModels() []core.Model
 	ExposedModelsFiltered(func(core.ModelSelector) bool) []core.Model
 	ExposedModelsForUserPath(string, func(core.ModelSelector) bool) []core.Model
+	ExposedModelsForUserPathNamed(string, func(core.ModelSelector) bool, func(string) bool) []core.Model
 	ValidateModelAccess(context.Context, core.ModelSelector) error
 	AllowsModel(context.Context, core.ModelSelector) bool
 	FilterPublicModels(context.Context, []core.Model) []core.Model

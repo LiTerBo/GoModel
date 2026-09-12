@@ -35,7 +35,10 @@ func (s *passthroughService) ProviderPassthrough(c *echo.Context) error {
 	}
 	if s.modelAuthorizer != nil {
 		if selector, ok := passthroughAccessSelector(s.provider, info); ok {
-			if err := s.modelAuthorizer.ValidateModelAccess(c.Request().Context(), selector); err != nil {
+			// Passthrough routes address the concrete provider path, so the
+			// requested name is what the caller supplied.
+			requestCtx := core.WithRequestedModelName(c.Request().Context(), info.Model)
+			if err := s.modelAuthorizer.ValidateModelAccess(requestCtx, selector); err != nil {
 				return handleError(c, err)
 			}
 		}

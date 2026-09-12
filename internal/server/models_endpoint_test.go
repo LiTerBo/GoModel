@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/enterpilot/gomodel/internal/core"
+	"github.com/enterpilot/gomodel/internal/storage/sqlx/sqlxtest"
+	"github.com/enterpilot/gomodel/internal/users"
 	"github.com/enterpilot/gomodel/internal/virtualmodels"
 )
 
@@ -222,4 +224,76 @@ func TestRetrieveModel_ProviderErrorIsReported(t *testing.T) {
 
 	require.NotEqual(t, http.StatusNotFound, rec.Code)
 	require.GreaterOrEqual(t, rec.Code, http.StatusInternalServerError)
+}
+
+// aliasPolicyCatalog supplies the provider names the users policy validates
+// allowlist entries against.
+type aliasPolicyCatalog []string
+
+func (c aliasPolicyCatalog) ProviderNames() []string { return c }
+
+// TestListModels_AliasNamedAllowlistSeesOnlyThatAlias pins the contract that a
+// credential restricted to an alias sees that alias alone: not its siblings,
+// not the concrete model behind it, and no target provenance in its metadata.
+func TestListModels_AliasNamedAllowlistSeesOnlyThatAlias(t *testing.T) {
+	catalog := &aliasesTestCatalog{
+		supported:     map[string]bool{"openai/gpt-4o": true},
+		providerTypes: map[string]string{"openai/gpt-4o": "openai"},
+		models:        map[string]core.Model{"openai/gpt-4o": {ID: "openai/gpt-4o", Object: "model", OwnedBy: "openai"}},
+	}
+	store, err := users.NewSQLStore(context.Background(), sqlxtest.NewSQLite(t))
+	require.NoError(t, err)
+	policy, err := users.NewService(store, aliasPolicyCatalog{"openai"})
+	require.NoError(t, err)
+	require.NoError(t, policy.Refresh(context.Background()))
+
+	service, err := virtualmodels.NewService(newAliasesTestStore(
+		redirectVM("smart", "gpt-4o", "openai", true),
+		redirectVM("sibling", "gpt-4o", "openai", true),
+	), catalog, true)
+	require.NoError(t, err)
+	require.NoError(t, service.Refresh(context.Background()))
+	// The subject-side policy is what consults the credential allowlist, as the
+	// application wires it.
+	service.SetAccessPolicy(policy)
+
+	mock := &mockProvider{modelsResponse: &core.ModelsResponse{
+		Object: "list",
+		Data:   []core.Model{{ID: "openai/gpt-4o", Object: "model", OwnedBy: "openai"}},
+	}}
+	srv := New(mock, &Config{
+		ModelAuthorizer:    service,
+		ExposedModelLister: service,
+		Authenticator: mockAuthenticator{
+			enabled:      true,
+			tokenToID:    map[string]string{"tok-alias": "id-alias", "tok-legacy": "id-legacy"},
+			tokenAllowed: map[string][]string{"tok-alias": {"smart"}, "tok-legacy": {"openai/gpt-4o"}},
+		},
+	})
+
+	list := func(token string) []core.Model {
+		req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var payload core.ModelsResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+		return payload.Data
+	}
+	ids := func(models []core.Model) []string {
+		out := make([]string, 0, len(models))
+		for _, model := range models {
+			out = append(out, model.ID)
+		}
+		return out
+	}
+
+	named := list("tok-alias")
+	require.Equal(t, []string{"smart"}, ids(named))
+	require.Empty(t, named[0].OwnedBy, "an alias must not expose its target's provenance")
+
+	// A target-level allowlist keeps the legacy projection: the concrete model
+	// is listed, and so is every alias whose target it permits.
+	require.ElementsMatch(t, []string{"openai/gpt-4o", "smart", "sibling"}, ids(list("tok-legacy")))
 }

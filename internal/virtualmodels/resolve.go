@@ -98,13 +98,13 @@ func (s *Service) GetProviderType(model string) string {
 
 // ExposedModels returns enabled redirects projected as model-list entries.
 func (s *Service) ExposedModels() []core.Model {
-	return s.exposedModels("", false, nil)
+	return s.exposedModels("", false, nil, nil)
 }
 
 // ExposedModelsFiltered returns enabled redirects projected as model-list
 // entries, filtered by the concrete target selector.
 func (s *Service) ExposedModelsFiltered(allow func(core.ModelSelector) bool) []core.Model {
-	return s.exposedModels("", false, allow)
+	return s.exposedModels("", false, allow, nil)
 }
 
 // ExposedModelsForUserPath is ExposedModelsFiltered plus per-redirect user_path
@@ -112,10 +112,19 @@ func (s *Service) ExposedModelsFiltered(allow func(core.ModelSelector) bool) []c
 // apply to, so a scoped alias is not listed (its name exposed) to callers
 // outside its scope even though resolution would fall through for them.
 func (s *Service) ExposedModelsForUserPath(userPath string, allow func(core.ModelSelector) bool) []core.Model {
-	return s.exposedModels(userPath, true, allow)
+	return s.exposedModels(userPath, true, allow, nil)
 }
 
-func (s *Service) exposedModels(userPath string, enforceUserPaths bool, allow func(core.ModelSelector) bool) []core.Model {
+// ExposedModelsForUserPathNamed is ExposedModelsForUserPath plus an optional
+// name predicate. A caller that may address a redirect by name sees it even
+// when none of its targets is permitted: the alias, not the concrete model
+// behind it, is the unit such a caller was authorized for. Target-level
+// allowlists keep working through the selector predicate.
+func (s *Service) ExposedModelsForUserPathNamed(userPath string, allow func(core.ModelSelector) bool, allowName func(string) bool) []core.Model {
+	return s.exposedModels(userPath, true, allow, allowName)
+}
+
+func (s *Service) exposedModels(userPath string, enforceUserPaths bool, allow func(core.ModelSelector) bool, allowName func(string) bool) []core.Model {
 	snap := s.snapshot()
 	result := make([]core.Model, 0, len(snap.order))
 	for _, source := range snap.order {
@@ -126,10 +135,18 @@ func (s *Service) exposedModels(userPath string, enforceUserPaths bool, allow fu
 		if enforceUserPaths && len(entry.vm.UserPaths) > 0 && !userPathAllowed(userPath, entry.vm.UserPaths) {
 			continue
 		}
-		// Expose a load-balanced redirect when at least one concrete model behind
-		// it (descending chains) is both catalog-supported and permitted, listing
-		// it with that model's metadata.
-		chosen, ok := representativeExposedTarget(snap.leafTargets(entry, s.catalog), allow)
+		// A caller that may address this redirect by name sees it without any
+		// target having to be permitted; otherwise the legacy rule stays: expose
+		// a load-balanced redirect when at least one concrete model behind it
+		// (descending chains) is both catalog-supported and permitted.
+		leafs := snap.leafTargets(entry, s.catalog)
+		var chosen resolvedTarget
+		var ok bool
+		if allowName != nil && allowName(entry.vm.Source) {
+			chosen, ok = representativeExposedTarget(leafs, nil)
+		} else {
+			chosen, ok = representativeExposedTarget(leafs, allow)
+		}
 		if !ok {
 			continue
 		}
@@ -139,6 +156,14 @@ func (s *Service) exposedModels(userPath string, enforceUserPaths bool, allow fu
 		}
 		cloned := *model
 		cloned.ID = entry.vm.Source
+		// An alias answers as itself: the concrete model behind it stays off the
+		// wire, so a caller neither learns which target serves it nor sees that
+		// provenance change when the target disappears.
+		cloned.OwnedBy = ""
+		cloned.Created = 0
+		if !entry.vm.CreatedAt.IsZero() {
+			cloned.Created = entry.vm.CreatedAt.Unix()
+		}
 		result = append(result, cloned)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })

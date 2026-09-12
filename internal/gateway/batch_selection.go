@@ -88,7 +88,9 @@ func DetermineBatchExecutionSelectionWithAuthorizerAndInputFileResolver(
 			return BatchExecutionSelection{}, core.NewModelNotFoundError(model)
 		}
 		if authorizer != nil {
-			if err := authorizer.ValidateModelAccess(ctx, resolvedSelector); err != nil {
+			// Batch items name their model per item: authorize against that name
+			// so an alias is admitted by name like a single request.
+			if err := authorizer.ValidateModelAccess(core.WithRequestedModelName(ctx, requested.Model), resolvedSelector); err != nil {
 				return BatchExecutionSelection{}, err
 			}
 		}

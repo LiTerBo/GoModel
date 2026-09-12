@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // contextKey is a custom type for context keys to avoid collisions.
 type contextKey string
@@ -69,6 +72,12 @@ const (
 	// credentialAllowedModelsKey stores the model allowlist bound to the
 	// authenticated credential (a managed auth key). Empty means unrestricted.
 	credentialAllowedModelsKey contextKey = "credential-allowed-models"
+
+	// requestedModelNameKey stores the model name the caller asked for, before
+	// alias resolution. Allowlists naming a virtual model match this name, so a
+	// credential restricted to an alias keeps working when the alias is
+	// repointed at another concrete model.
+	requestedModelNameKey contextKey = "requested-model-name"
 )
 
 // RequestOrigin identifies whether a request came from an external caller or an
@@ -228,6 +237,28 @@ func GetCredentialAllowedModels(ctx context.Context) []string {
 		}
 	}
 	return nil
+}
+
+// WithRequestedModelName returns a new context carrying the model name the
+// caller asked for, before alias resolution. An empty name clears it.
+func WithRequestedModelName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, requestedModelNameKey, strings.TrimSpace(name))
+}
+
+// GetRequestedModelName retrieves the model name this request asked for: the
+// value stamped by the resolving caller, or the requested model carried by the
+// workflow resolution already on the context. Empty when the request names no
+// model (for example GET /v1/models).
+func GetRequestedModelName(ctx context.Context) string {
+	if v := ctx.Value(requestedModelNameKey); v != nil {
+		if name, ok := v.(string); ok && name != "" {
+			return name
+		}
+	}
+	if workflow := GetWorkflow(ctx); workflow != nil && workflow.Resolution != nil {
+		return strings.TrimSpace(workflow.Resolution.Requested.Model)
+	}
+	return ""
 }
 
 // WithEffectiveUserPath returns a new context with an effective user path override attached.
