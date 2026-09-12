@@ -303,6 +303,11 @@ func TestApplyConfigMetadataOverrides_NoOpPreservesPointerIdentity(t *testing.T)
 				DisplayName:   "Same Display",
 				ContextWindow: new(131072),
 				Capabilities:  map[string]bool{"tools": true},
+				// The config declaration is already recorded, which is what
+				// makes the override below a genuine no-op: a merge that adds
+				// new provenance is a change, so an unchanged model is one
+				// whose sources already match too.
+				CapabilitySources: map[string]string{"tools": core.CapSrcConfig},
 			},
 		},
 		ProviderName: "nippur",

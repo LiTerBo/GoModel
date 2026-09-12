@@ -375,6 +375,13 @@ func applyConfigMetadataOverrides(
 			basePricing := metadataPricing(current.Model.Metadata)
 			basePricingSources := metadataPricingSources(current.Model.Metadata)
 			merged := modeldata.MergeMetadata(current.Model.Metadata, override)
+			// A capability the operator declared in config.yaml is an operator
+			// declaration, so record that as its origin, the way the pricing
+			// branch below records its own config source. Keys the override
+			// already sourced keep theirs: operator confirmations ride this same
+			// channel, and relabelling a verification as a declaration would
+			// lose the distinction the dashboard renders.
+			merged.CapabilitySources = mergePricingSources(merged.CapabilitySources, configCapabilitySources(override))
 			if override.Pricing != nil {
 				merged.Pricing = mergeConfigPricing(basePricing, override.Pricing)
 				merged.PricingSources = mergePricingSources(basePricingSources, override.Pricing.FieldSources(core.ModelPricingSourceConfigYAML))

@@ -7,6 +7,25 @@ import (
 	"github.com/enterpilot/gomodel/internal/core"
 )
 
+// configCapabilitySources maps the capabilities an override declares to
+// core.CapSrcConfig. Keys the override already carries a source for are left
+// out: confirmations arrive through this same override channel and know their
+// own, more specific origin. Returns nil when the override declares no
+// capability, so callers can merge it unconditionally.
+func configCapabilitySources(override *core.ModelMetadata) map[string]string {
+	if override == nil || len(override.Capabilities) == 0 {
+		return nil
+	}
+	sources := make(map[string]string, len(override.Capabilities))
+	for capability := range override.Capabilities {
+		if _, sourced := override.CapabilitySources[capability]; sourced {
+			continue
+		}
+		sources[capability] = core.CapSrcConfig
+	}
+	return sources
+}
+
 // MergeModelCapabilities persists an operator-confirmed capability verdict
 // (from an offline probe or audit-log observation) onto the given provider's
 // model metadata overrides. Confirmed capabilities ride the config-override
