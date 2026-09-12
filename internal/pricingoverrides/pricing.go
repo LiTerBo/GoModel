@@ -156,6 +156,12 @@ func mergePricing(base *core.ModelPricing, override Pricing) *core.ModelPricing 
 	return out
 }
 
+// MergePricing merges catalog base pricing with operator override and exposes
+// the result publicly for verification and diagnostic tooling.
+func MergePricing(base *core.ModelPricing, override Pricing) *core.ModelPricing {
+	return mergePricing(base, override)
+}
+
 func applyFloatOverride(target **float64, value *float64) {
 	if value != nil {
 		*target = cloneFloatPtr(value)

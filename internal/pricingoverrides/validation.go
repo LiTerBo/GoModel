@@ -49,6 +49,11 @@ func validatePricing(p Pricing) error {
 	return nil
 }
 
+// ValidatePricing validates pricing including time windows for external verification.
+func ValidatePricing(p Pricing) error {
+	return validatePricing(p)
+}
+
 func pricingScalarFields(p Pricing) []pricingField {
 	return []pricingField{
 		{"input_per_mtok", p.InputPerMtok},
