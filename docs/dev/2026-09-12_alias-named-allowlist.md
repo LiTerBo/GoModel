@@ -106,7 +106,7 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 - [x] T10 登记：issue #36
 - [x] T11 前端：`admin/dashboard/auth-keys`（创建 + 编辑允许模型）与 Users 页的可选清单按名称列出可授权的虚拟模型（详见 §3.6）
 - [x] T12 admin `effective_models` 与 `/v1/models` 同口径：追加按名授权与目标级覆盖的虚拟模型，密钥行与 Users 行共用同一 helper（详见 §3.7）
-- [ ] T13 别名演进护栏：改指向时提示影响面 / 可选锁定目标集合（对应 D2 的代价）
+- [ ] T13 别名演进护栏：改指向时提示影响面 / 可选锁定目标集合（对应 D2 的代价）——**已登记 issue [#44](https://github.com/LiTerBo/GoModel/issues/44)**（设计空间 a/b/c 与待裁决 Q1–Q5 见该 issue；本轮只登记，未实施）
 - [ ] T14 上游失败错误文本归一化（`model_access_denied` 的 message 目前直接透传上游形态）
 
 ## 5. 验证证据
@@ -142,7 +142,7 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 
 | 风险 | 说明 | 现状 |
 | --- | --- | --- |
-| 改指向即扩权 | 名字授权后，别名新增/更换目标不改变该 key 的可用范围（D2 的代价） | 接受现状；T13 提供护栏 |
+| 改指向即扩权 | 名字授权后，别名新增/更换目标不改变该 key 的可用范围（D2 的代价） | 接受现状；护栏设计已登记 **T13 = [#44](https://github.com/LiTerBo/GoModel/issues/44)**（影响面提示 / 锁定集合 / 审计三类方案 + 待裁决 Q1–Q5） |
 | 能力元数据不准确 | 别名条目 `metadata` 仍来自代表目标，adaptive 别名可能报错能力 | 已知，待独立规则 |
-| admin 显示不自洽 | key 行 `effective_models` 仍只列具体模型 | T12 |
-| 既有性能预算失败 | `tests/perf` 在改动前即失败 | 建议单独登记 issue，避免污染全量门禁判断 |
+| admin 显示不自洽 | key 行 `effective_models` 仍只列具体模型 | 已修 **T12 = PR #42**（与 `/v1/models` 同口径，squash 合并 `6beb950b`） |
+| 既有性能预算失败 | `tests/perf` 在改动前即失败 | 已修 **#37 = PR #43**（5 个 chat 用例天花板按实测标定，判定语义不变，squash 合并 `01dc58d5`）；全量门禁 `go test ./...` → 100 包 ok / 0 FAIL |
