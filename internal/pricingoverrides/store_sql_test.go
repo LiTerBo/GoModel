@@ -200,9 +200,9 @@ func TestStorePersistenceTimeWindows(t *testing.T) {
 		if err := store.Upsert(ctx, Override{
 			Selector: "deepseek/deepseek-v4-flash",
 			Pricing: Pricing{
-				InputPerMtok: coreFloat(0.3),
+				InputPerMtok:  coreFloat(0.3),
 				OutputPerMtok: coreFloat(1.2),
-				TimeWindows:  windows,
+				TimeWindows:   windows,
 			},
 		}); err != nil {
 			t.Fatalf("Upsert: %v", err)
