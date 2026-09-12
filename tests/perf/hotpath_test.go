@@ -415,12 +415,19 @@ func formatPerfGuardResult(name string, result testing.BenchmarkResult, maxAlloc
 func TestHotPathPerfGuard(t *testing.T) {
 	t.Helper()
 
-	// Ceilings sit ~5% above the measured baseline: tight enough to catch real
-	// allocation regressions, loose enough to absorb minor Go/dependency drift.
-	// Allocation counts here are deterministic and match across architectures
-	// (linux/amd64 CI == darwin/arm64 local), so these are stable. When a change
-	// legitimately adds allocations, re-measure with `make perf-bench` and bump
-	// the affected ceiling in the same commit.
+	// Ceilings sit 2-3 allocations (≤3%) above the measured baseline: tight
+	// enough to catch real allocation regressions, loose enough to absorb minor
+	// Go/dependency drift. Allocation counts here are deterministic and match
+	// across architectures (linux/amd64 CI == darwin/arm64 local), so these are
+	// stable; byte counts move by a few dozen bytes between runs, hence the
+	// rounded byte ceilings. When a change legitimately adds allocations,
+	// re-measure with `make perf-check` (or `make perf-bench`) and bump the
+	// affected ceiling in the same commit.
+	//
+	// Re-measured 2026-09-12 (go1.27.1, darwin/arm64) after the upstream v1.2.0
+	// sync: audit response body/header capture, unknown-field-preserving
+	// responses and request labels legitimately added allocations on the chat
+	// path. The stream cases were unaffected and keep their earlier ceilings.
 	cases := []struct {
 		name      string
 		bench     func(*testing.B)
@@ -430,7 +437,7 @@ func TestHotPathPerfGuard(t *testing.T) {
 		{
 			name:      "gateway_chat_completion_hot_path",
 			bench:     BenchmarkGatewayHotPathChatCompletion,
-			maxAllocs: 92,    // baseline 89 (85 + 2 per unknown-field-preserving response level: ChatResponse, Choice)
+			maxAllocs: 97,    // baseline 94 (was 89 before the upstream v1.2.0 sync)
 			maxBytes:  14336, // baseline ~13.7 KB (incl. per-attempt response body/header capture fields)
 		},
 		{
@@ -441,8 +448,8 @@ func TestHotPathPerfGuard(t *testing.T) {
 			// full catalog several times per request) would blow these limits.
 			name:      "gateway_chat_completion_hot_path_routed",
 			bench:     BenchmarkGatewayHotPathChatCompletionRouted,
-			maxAllocs: 103,   // baseline 100 (see the bare case; plus strings.Cut selector parsing)
-			maxBytes:  14720, // baseline ~13.7 KB
+			maxAllocs: 117,   // baseline 114 (was 100; + selector index and strings.Cut parsing)
+			maxBytes:  15360, // baseline ~14.5 KB
 		},
 		{
 			// Alias shape: the model resolver rewrites "fast" to a concrete
@@ -451,16 +458,16 @@ func TestHotPathPerfGuard(t *testing.T) {
 			// family as the bare routed case.
 			name:      "gateway_chat_completion_hot_path_routed_alias",
 			bench:     BenchmarkGatewayHotPathChatCompletionRoutedAlias,
-			maxAllocs: 104,   // baseline 101 (routed + resolver selector)
-			maxBytes:  14656, // baseline ~13.7 KB
+			maxAllocs: 119,   // baseline 116 (routed + resolver selector)
+			maxBytes:  15360, // baseline ~14.4 KB
 		},
 		{
 			// Provider-qualified shape ("mock/gpt-4o-mini"): the qualified
 			// selector index plus the model rewrite the upstream receives.
 			name:      "gateway_chat_completion_hot_path_routed_qualified",
 			bench:     BenchmarkGatewayHotPathChatCompletionRoutedQualified,
-			maxAllocs: 103,   // baseline 100
-			maxBytes:  14720, // baseline ~13.8 KB
+			maxAllocs: 108,   // baseline 105 (was 100)
+			maxBytes:  14848, // baseline ~14.1 KB
 		},
 		{
 			// Default-deployment shape: auth + audit (bodies/headers) + usage +
@@ -470,8 +477,8 @@ func TestHotPathPerfGuard(t *testing.T) {
 			// deployments actually run.
 			name:      "gateway_chat_completion_production_shape",
 			bench:     BenchmarkGatewayHotPathProductionShape,
-			maxAllocs: 161,   // baseline 158 (audit bodies kept as raw JSON instead of decoded into maps)
-			maxBytes:  21056, // baseline ~19.6 KB
+			maxAllocs: 178,   // baseline 175 (was 158: audit bodies kept as raw JSON instead of decoded into maps)
+			maxBytes:  21504, // baseline ~20.6 KB
 		},
 		{
 			// Typed chunk decoding + reused read buffer keep this converter at a
