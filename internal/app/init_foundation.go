@@ -76,6 +76,10 @@ func (b *bootstrap) initProviders() error {
 	if b.routeSelector != nil {
 		b.cfg.Factory.AddHooks(routeSelectorHooks(b.routeSelector))
 	}
+	if attachRouteHealth(b.routeSelector, b.requestHealth) {
+		slog.Info("route selector steers around failing targets",
+			"selector", selectorLabel(b.routeSelector))
+	}
 	// Routing-strategy plugins learn target health from every upstream
 	// attempt, so the plugin catalog and the strategy resolver are built here,
 	// before the first provider captures the hook set. Guardrails, admin and
@@ -267,6 +271,23 @@ func routeAffinityContext(ctx context.Context) (source, sessionID string) {
 		return "", sessionID
 	}
 	return workflow.Resolution.RequestedQualifiedModel(), sessionID
+}
+
+// attachRouteHealth hands the request-health tracker to a route selector that
+// accepts one, so the selector can steer away from targets that are actively
+// failing. Selectors written against the plain ext.RouteSelector contract are
+// left untouched, and a missing oracle is ignored: health steering is optional,
+// and a selector keeps serving whether or not the signal is available.
+func attachRouteHealth(selector ext.RouteSelector, oracle ext.HealthOracle) bool {
+	if selector == nil {
+		return false
+	}
+	aware, ok := selector.(ext.HealthAwareSelector)
+	if !ok || oracle == nil {
+		return false
+	}
+	aware.SetHealthOracle(oracle)
+	return true
 }
 
 // selectorLabel returns the selector's name for logs, tolerating a panicking

@@ -98,6 +98,29 @@ type RouteOutcome struct {
 	Err error
 }
 
+// HealthOracle reports whether a routed target is failing right now, so a
+// route selector can steer away from it. It is fed by real traffic (windowed
+// request outcomes and circuit-breaker state), not by configuration, so it
+// only exists once the gateway is built: selectors receive one through
+// HealthAwareSelector after construction.
+//
+// Implementations run on the request path and must be fast, non-blocking, and
+// safe for concurrent use. false means "no adverse signal", never "known
+// good": a target with no recorded traffic is reported healthy.
+type HealthOracle interface {
+	// Unhealthy reports whether the provider's circuit breaker is open or the
+	// provider/model pair is flagged on windowed errors.
+	Unhealthy(provider, model string) bool
+}
+
+// HealthAwareSelector is implemented by route selectors that accept a health
+// oracle. The gateway calls SetHealthOracle once, after the request tracker
+// exists, and never clears it; selectors that ignore health simply do not
+// implement this interface.
+type HealthAwareSelector interface {
+	SetHealthOracle(oracle HealthOracle)
+}
+
 // RouteSelector steers load balancing for virtual models using the
 // "adaptive" strategy. Core consults the selector to pick among currently
 // viable targets and, for a session-affine redirect, to decide whether the

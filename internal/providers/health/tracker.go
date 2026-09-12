@@ -229,7 +229,7 @@ func (t *Tracker) Snapshot() map[string]ProviderHealth {
 				Model:    modelName,
 				Requests: requests,
 				Errors:   errors,
-				Flagged:  errors >= flagMinErrors && errors*2 >= requests,
+				Flagged:  flaggedModel(requests, errors),
 			}
 			if model.lastError != nil && now.Sub(model.lastError.At) <= Window {
 				lastError := *model.lastError
@@ -265,6 +265,50 @@ func (p ProviderHealth) FlaggedModels() []string {
 		}
 	}
 	return flagged
+}
+
+// flaggedModel is the rule both the dashboard snapshot and the health oracle
+// use: a model counts as flagged once it has enough windowed errors
+// (flagMinErrors) and at least half of its windowed requests failed.
+func flaggedModel(requests, errors int) bool {
+	return errors >= flagMinErrors && errors*2 >= requests
+}
+
+// circuitOpenState is the breaker state string the tracker records while a
+// provider's circuit is open (llmclient reports "closed", "open", or
+// "half-open").
+const circuitOpenState = "open"
+
+// Unhealthy reports whether a routed target looks failing as of the last
+// observed traffic: the provider's circuit breaker is open, or the
+// provider/model pair is flagged on windowed errors. Route selectors use it to
+// steer away from a target that is timing out or serving 429s while its
+// provider still lists it.
+//
+// A target with no recorded traffic is reported healthy: the signal only ever
+// withholds a pick, and withholding on silence would order the pool by
+// whichever target happens to be coldest.
+func (t *Tracker) Unhealthy(provider, model string) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	state := t.providers[provider]
+	if state == nil {
+		return false
+	}
+	if state.circuitState == circuitOpenState {
+		return true
+	}
+	entry := state.models[model]
+	if entry == nil {
+		return false
+	}
+	entry.prune(t.now())
+	requests, errors := entry.counts()
+	return flaggedModel(requests, errors)
 }
 
 // provider returns the named provider's state, creating it on first use.

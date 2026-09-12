@@ -10,10 +10,11 @@ import (
 var hardCapabilities = map[string]bool{"vision": true}
 
 // Engine turns a RouteRequest into a candidate pick: score → tier →
-// capability filtering → ordered model preference.
+// capability filtering → request-health filtering → ordered model preference.
 type Engine struct {
 	thresholds Thresholds
 	tiers      TierMap
+	health     ext.HealthOracle
 }
 
 // NewEngine builds an engine from configuration.
@@ -36,8 +37,36 @@ func (e *Engine) Select(req ext.RouteRequest) string {
 	if len(pool) == 0 {
 		return ""
 	}
+	pool = e.filterUnhealthy(pool)
 	tier := Classify(Score(req.Content), e.thresholds)
 	return matchPreferred(pool, e.orderFor(tier))
+}
+
+// filterUnhealthy drops candidates the health oracle reports as failing, so a
+// target that is timing out or serving 429s does not win a request just because
+// its tier is preferred or its session pin is warm. Capability filtering runs
+// first: a model that cannot satisfy the request is never a substitute for one
+// that can.
+//
+// It fails open. When every candidate is unhealthy, filtering the pool to
+// nothing would decline the pick and hand the request to round robin over the
+// same failing set — the tier preference is what the operator configured, so
+// the unfiltered pool is returned and the pick proceeds as if health were
+// unknown.
+func (e *Engine) filterUnhealthy(candidates []ext.RouteCandidate) []ext.RouteCandidate {
+	if e.health == nil || len(candidates) == 0 {
+		return candidates
+	}
+	healthy := make([]ext.RouteCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		if !e.health.Unhealthy(c.Provider, c.Model) {
+			healthy = append(healthy, c)
+		}
+	}
+	if len(healthy) == 0 {
+		return candidates
+	}
+	return healthy
 }
 
 func (e *Engine) filterCapabilities(candidates []ext.RouteCandidate, required []string) []ext.RouteCandidate {

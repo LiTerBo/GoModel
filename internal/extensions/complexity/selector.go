@@ -46,6 +46,16 @@ func (s *Selector) Select(req ext.RouteRequest) (string, bool) {
 	return "", false
 }
 
+// SetHealthOracle injects the runtime health source. The oracle is built from
+// real traffic, so it does not exist when the extension is installed at
+// startup: the gateway hands it over once its request tracker is up. Until
+// then, and when no oracle is injected at all, every target counts as healthy.
+func (s *Selector) SetHealthOracle(oracle ext.HealthOracle) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.engine.health = oracle
+}
+
 // OnAttemptStart / OnAttemptEnd keep trial-run observations: selections
 // before any outcome signal, so both are no-ops for now.
 func (s *Selector) OnAttemptStart(ext.RouteTarget) {}
