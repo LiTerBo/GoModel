@@ -71,6 +71,14 @@ type VirtualModel struct {
 	// serves the chosen target only. The failover strategy always fails over.
 	Failover *bool `json:"failover,omitempty" bson:"failover,omitempty"`
 
+	// Locked freezes the pointing: an admin write that changes which models a
+	// caller can end up talking to needs an explicit unlock in the same request
+	// (see the lock guard in the admin API). Edits that leave the pointing alone
+	// stay allowed. The lock guards against accidental drift, not against an
+	// operator, and it is store state only: config-declared rows are versioned by
+	// their config instead.
+	Locked bool `json:"locked,omitempty" bson:"locked,omitempty"`
+
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
 
@@ -216,6 +224,7 @@ type View struct {
 	// Slowdown is an extra-time factor from 0.1 to 10; zero disables it.
 	Slowdown      *float64  `json:"slowdown,omitempty"`
 	Enabled       bool      `json:"enabled"`
+	Locked        bool      `json:"locked"`
 	Managed       bool      `json:"managed,omitempty"`
 	ResolvedModel string    `json:"resolved_model,omitempty"`
 	ProviderType  string    `json:"provider_type,omitempty"`

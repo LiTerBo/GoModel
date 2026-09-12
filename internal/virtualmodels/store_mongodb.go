@@ -26,6 +26,7 @@ type mongoVirtualModelDocument struct {
 	Description     string    `bson:"description,omitempty"`
 	Slowdown        *float64  `bson:"slowdown,omitempty"`
 	Enabled         bool      `bson:"enabled"`
+	Locked          bool      `bson:"locked,omitempty"`
 	CreatedAt       time.Time `bson:"created_at"`
 	UpdatedAt       time.Time `bson:"updated_at"`
 }
@@ -110,6 +111,7 @@ func (s *MongoDBStore) Upsert(ctx context.Context, vm VirtualModel) error {
 			"description":      vm.Description,
 			"slowdown":         vm.Slowdown,
 			"enabled":          vm.Enabled,
+			"locked":           vm.Locked,
 			"updated_at":       vm.UpdatedAt,
 		},
 		"$setOnInsert": bson.M{
@@ -151,6 +153,7 @@ func virtualModelFromMongo(doc mongoVirtualModelDocument) VirtualModel {
 		Description:     doc.Description,
 		Slowdown:        doc.Slowdown,
 		Enabled:         doc.Enabled,
+		Locked:          doc.Locked,
 		CreatedAt:       doc.CreatedAt.UTC(),
 		UpdatedAt:       doc.UpdatedAt.UTC(),
 	}

@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -35,6 +36,26 @@ func rateLimitServiceError(message string, err error) error {
 func featureUnavailableError(message string) error {
 	return core.NewInvalidRequestErrorWithStatus(http.StatusServiceUnavailable, message, nil).
 		WithCode("feature_unavailable")
+}
+
+// lockedVirtualModelError reports a write rejected because the virtual model is
+// locked: the caller has to send an explicit unlock in the same request.
+func lockedVirtualModelError(message string) error {
+	return core.NewInvalidRequestErrorWithStatus(http.StatusConflict, message, nil).
+		WithCode("virtual_model_locked")
+}
+
+// virtualModelInUseError reports a delete rejected because credentials or user
+// paths still reach the virtual model. The caller renders the affected list
+// from GET /admin/virtual-models/authorized-by; the error names the override.
+func virtualModelInUseError(source string, credentials, userPaths int) error {
+	message := fmt.Sprintf(
+		"virtual model %q is still reachable by %d credential(s) and %d user path(s); send force to delete it",
+		source, credentials, userPaths,
+	)
+	return core.NewInvalidRequestErrorWithStatus(http.StatusConflict, message, nil).
+		WithCode("virtual_model_in_use").
+		WithParam("force")
 }
 
 func quotaTemplatesUnavailableError() error {

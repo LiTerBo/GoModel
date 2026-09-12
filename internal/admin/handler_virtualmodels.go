@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/enterpilot/gomodel/internal/auditlog"
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/plugins"
 	"github.com/enterpilot/gomodel/internal/virtualmodels"
@@ -41,6 +42,12 @@ type upsertVirtualModelRequest struct {
 	// Slowdown is an extra-time factor from 0.1 to 10; zero disables it.
 	Slowdown *float64 `json:"slowdown,omitempty"`
 	Enabled  *bool    `json:"enabled,omitempty"`
+	// Locked freezes the pointing; omitted keeps the stored state. Unlock is the
+	// explicit gesture that lets a locked row change its targets or strategy in
+	// the same request (sending locked:false does the same and turns the lock
+	// off).
+	Locked *bool `json:"locked,omitempty"`
+	Unlock bool  `json:"unlock,omitempty"`
 }
 
 // virtualModelTargetRequest is one load-balancing destination. Model may be a
@@ -54,6 +61,9 @@ type virtualModelTargetRequest struct {
 
 type deleteVirtualModelRequest struct {
 	Source string `json:"source"`
+	// Force overrides the reachability guard: deleting a virtual model that
+	// credentials or user paths still reach takes it away from them.
+	Force bool `json:"force,omitempty"`
 }
 
 // ListVirtualModels handles GET /admin/virtual-models.
@@ -91,6 +101,7 @@ func (h *Handler) ListVirtualModels(c *echo.Context) error {
 // @Success      204            "No-op access policy removed"
 // @Failure      400            {object}  core.GatewayError
 // @Failure      401            {object}  core.GatewayError
+// @Failure      409            {object}  core.GatewayError  "Virtual model is locked: send an explicit unlock with the change"
 // @Failure      502            {object}  core.GatewayError
 // @Failure      503            {object}  core.GatewayError
 // @Router       /admin/virtual-models [put]
@@ -112,8 +123,19 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, err)
 	}
+	// The stored row answers both the lock guard and the audit event, so it is
+	// read once; a rename guards the row it moves away from.
+	guardSource := strings.TrimSpace(req.OldSource)
+	if guardSource == "" {
+		guardSource = source
+	}
+	stored, _ := h.virtualModels.Get(guardSource)
+	if reason := h.lockRejection(stored, vm, req.Unlock, req.Locked); reason != "" {
+		return handleError(c, lockedVirtualModelError(reason))
+	}
 	oldSource := strings.TrimSpace(req.OldSource)
-	if oldSource != "" && oldSource != source {
+	renamed := oldSource != "" && oldSource != source
+	if renamed {
 		err = h.virtualModels.Rename(c.Request().Context(), oldSource, vm)
 	} else {
 		err = h.virtualModels.Upsert(c.Request().Context(), vm)
@@ -121,6 +143,7 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, virtualModelWriteError(err))
 	}
+	h.upsertVirtualModelChange(c, stored, vm, virtualModelChangeAction(stored, vm, renamed))
 
 	if view, ok := h.findVirtualModelView(vm.Source); ok {
 		return c.JSON(http.StatusOK, view)
@@ -140,6 +163,7 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 // @Failure      400       {object}  core.GatewayError
 // @Failure      401       {object}  core.GatewayError
 // @Failure      404       {object}  core.GatewayError
+// @Failure      409       {object}  core.GatewayError  "Credentials or user paths still reach the virtual model: send force to delete it"
 // @Failure      502       {object}  core.GatewayError
 // @Failure      503       {object}  core.GatewayError
 // @Router       /admin/virtual-models [delete]
@@ -157,12 +181,33 @@ func (h *Handler) DeleteVirtualModel(c *echo.Context) error {
 		return handleError(c, core.NewInvalidRequestError("source is required", nil))
 	}
 
+	stored, ok := h.virtualModels.Get(source)
+	if !ok || stored == nil {
+		return handleError(c, core.NewNotFoundError("virtual model not found: "+source))
+	}
+	// The reachability list answers both the guard and the audit event.
+	used := h.virtualModelUsage(stored)
+	credentials := countGrantKind(used, "credential")
+	userPaths := countGrantKind(used, "user_path")
+	if !req.Force && len(used) > 0 {
+		return handleError(c, virtualModelInUseError(stored.Source, credentials, userPaths))
+	}
+
 	if err := h.virtualModels.Delete(c.Request().Context(), source); err != nil {
 		if errors.Is(err, virtualmodels.ErrNotFound) {
 			return handleError(c, core.NewNotFoundError("virtual model not found: "+source))
 		}
 		return handleError(c, virtualModelWriteError(err))
 	}
+	h.emitVirtualModelChange(c, auditlog.VirtualModelChange{
+		Action:      auditlog.VirtualModelActionDelete,
+		Source:      stored.Source,
+		OldTargets:  targetStrings(*stored),
+		Locked:      stored.Locked,
+		Forced:      req.Force,
+		Credentials: credentials,
+		UserPaths:   userPaths,
+	})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -181,6 +226,7 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 		Description:     strings.TrimSpace(req.Description),
 		Slowdown:        req.Slowdown,
 		Enabled:         h.virtualModels.ResolveUpsertEnabled(source, req.OldSource, req.Enabled),
+		Locked:          h.virtualModels.ResolveUpsertLocked(source, req.OldSource, req.Locked),
 	}
 
 	targets, err := buildVirtualModelTargets(req)
@@ -192,6 +238,28 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 		return virtualmodels.VirtualModel{}, err
 	}
 	return vm, nil
+}
+
+// lockRejection reports why a locked virtual model rejects this write, or ""
+// when the write is allowed. A locked row still takes edits that leave the
+// pointing alone, but changing which models a caller can end up talking to
+// needs an explicit unlock gesture in the same request: unlock:true keeps the
+// lock on the new pointing, an explicit locked:false turns the lock off.
+//
+// The guard lives here rather than in the service because it is the operator
+// guard on the admin API: config-declared rows are versioned by their config
+// and never come through this path.
+func (h *Handler) lockRejection(stored *virtualmodels.VirtualModel, next virtualmodels.VirtualModel, unlock bool, requestedLock *bool) string {
+	if unlock || (requestedLock != nil && !*requestedLock) {
+		return ""
+	}
+	if stored == nil || !stored.Locked {
+		return ""
+	}
+	if !virtualmodels.ResolutionConfigChanged(*stored, next) {
+		return ""
+	}
+	return fmt.Sprintf("virtual model %q is locked; send an explicit unlock to change its targets or strategy", stored.Source)
 }
 
 // validateStrategyPlugin rejects a plugin-strategy redirect whose plugin is
