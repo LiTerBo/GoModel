@@ -90,6 +90,7 @@ func TestRegisterRoutes_RegistersExpectedPaths(t *testing.T) {
 		"GET /admin/models/observed-suggestions",
 
 		"GET /admin/virtual-models",
+		"GET /admin/virtual-models/authorized-by",
 		"PUT /admin/virtual-models",
 		"DELETE /admin/virtual-models",
 

@@ -81,6 +81,7 @@ func (h *Handler) RegisterRoutes(g RouteRegistrar) {
 	g.PUT("/models/observed-capabilities", h.ConfirmObservedCapabilities, global)
 
 	g.GET("/virtual-models", h.ListVirtualModels, global)
+	g.GET("/virtual-models/authorized-by", h.AuthorizedByVirtualModel, global)
 	g.PUT("/virtual-models", h.UpsertVirtualModel, global)
 	g.DELETE("/virtual-models", h.DeleteVirtualModel, global)
 

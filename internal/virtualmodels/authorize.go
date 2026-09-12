@@ -83,6 +83,14 @@ func (s *Service) FilterPublicModels(ctx context.Context, models []core.Model) [
 	return result
 }
 
+// UserPathAllowed reports whether callers on userPath are in scope for a
+// virtual model restricted to scopedTo (empty means every caller). Exported so
+// the admin impact preview reuses the request-time rule verbatim instead of
+// re-deriving it.
+func UserPathAllowed(userPath string, scopedTo []string) bool {
+	return userPathAllowed(userPath, scopedTo)
+}
+
 func userPathAllowed(userPath string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
