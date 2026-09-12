@@ -210,12 +210,13 @@ func (s *realtimeService) recordMeteredUsage(route realtimeRoute, meter *usage.R
 // request id. It mirrors audioService.prepare so realtime sessions are gated by
 // the same model-access and budget rules as the other model endpoints.
 func (s *realtimeService) prepare(c *echo.Context, model, providerHint string) (context.Context, realtimeRoute, error) {
-	selector, err := resolveServiceModel(c.Request().Context(), s.provider, s.modelResolver, model, providerHint)
+	requestCtx := core.WithRequestedModelName(c.Request().Context(), model)
+	selector, err := resolveServiceModel(requestCtx, s.provider, s.modelResolver, model, providerHint)
 	if err != nil {
 		return nil, realtimeRoute{}, err
 	}
 	if s.modelAuthorizer != nil {
-		if err := s.modelAuthorizer.ValidateModelAccess(c.Request().Context(), selector); err != nil {
+		if err := s.modelAuthorizer.ValidateModelAccess(requestCtx, selector); err != nil {
 			return nil, realtimeRoute{}, err
 		}
 	}
@@ -225,6 +226,7 @@ func (s *realtimeService) prepare(c *echo.Context, model, providerHint string) (
 	auditlog.EnrichEntry(c, selector.Model, "")
 
 	ctx, requestID := requestContextWithRequestID(c.Request())
+	ctx = core.WithRequestedModelName(ctx, model)
 	c.SetRequest(c.Request().WithContext(ctx))
 
 	qualified := selector.QualifiedModel()

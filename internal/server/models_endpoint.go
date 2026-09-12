@@ -42,16 +42,25 @@ func (h *Handler) visibleModels(c *echo.Context) (*core.ModelsResponse, error) {
 		ctx := c.Request().Context()
 		// The target-access filter is only available when an authorizer is set.
 		var allow func(core.ModelSelector) bool
+		var allowName func(string) bool
 		if h.modelAuthorizer != nil {
 			allow = func(selector core.ModelSelector) bool {
 				return h.modelAuthorizer.AllowsModel(ctx, selector)
+			}
+			// An alias is addressed by name, so a credential whose allowlist
+			// names it must see it even when its concrete targets are not
+			// permitted: probe the same authorizer with a name-only selector.
+			allowName = func(name string) bool {
+				return name != "" && h.modelAuthorizer.AllowsModel(ctx, core.ModelSelector{Model: name})
 			}
 		}
 		// User-path scoping of redirects is a property of the redirect itself, not
 		// of the authorizer, so it must apply even when no authorizer is configured
 		// (allow is nil there) — otherwise scoped redirect IDs leak to callers
 		// outside their user_paths.
-		if scoped, ok := h.exposedModelLister.(UserPathExposedModelLister); ok {
+		if named, ok := h.exposedModelLister.(NamedUserPathExposedModelLister); ok && allowName != nil {
+			resp = mergeExposedModelsResponse(resp, named.ExposedModelsForUserPathNamed(core.UserPathFromContext(ctx), allow, allowName))
+		} else if scoped, ok := h.exposedModelLister.(UserPathExposedModelLister); ok {
 			resp = mergeExposedModelsResponse(resp, scoped.ExposedModelsForUserPath(core.UserPathFromContext(ctx), allow))
 		} else if filtered, ok := h.exposedModelLister.(FilteredExposedModelLister); ok && allow != nil {
 			resp = mergeExposedModelsResponse(resp, filtered.ExposedModelsFiltered(allow))

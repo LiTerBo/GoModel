@@ -48,12 +48,13 @@ type modelCallRoute struct {
 func (s *modelCallService) prepare(c *echo.Context, model, providerHint string) (context.Context, modelCallRoute, error) {
 	// Surface resolution failures (unknown alias, registry not ready, malformed
 	// selector) instead of authorizing an unresolved selector.
-	selector, err := resolveServiceModel(c.Request().Context(), s.provider, s.modelResolver, model, providerHint)
+	requestCtx := core.WithRequestedModelName(c.Request().Context(), model)
+	selector, err := resolveServiceModel(requestCtx, s.provider, s.modelResolver, model, providerHint)
 	if err != nil {
 		return nil, modelCallRoute{}, err
 	}
 	if s.modelAuthorizer != nil {
-		if err := s.modelAuthorizer.ValidateModelAccess(c.Request().Context(), selector); err != nil {
+		if err := s.modelAuthorizer.ValidateModelAccess(requestCtx, selector); err != nil {
 			return nil, modelCallRoute{}, err
 		}
 	}
@@ -63,6 +64,7 @@ func (s *modelCallService) prepare(c *echo.Context, model, providerHint string) 
 	auditlog.EnrichEntry(c, selector.Model, "")
 
 	ctx, requestID := requestContextWithRequestID(c.Request())
+	ctx = core.WithRequestedModelName(ctx, model)
 	c.SetRequest(c.Request().WithContext(ctx))
 	route := s.routeFor(selector, requestID)
 	// Stamp the executed route so audit rows carry the resolved model and

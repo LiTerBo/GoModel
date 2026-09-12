@@ -107,13 +107,22 @@ Each entry in an allowlist is one selector:
 | `*`                | every model; redundant unless you want an explicit row, and it never widens a parent's list (rule 3) |
 
 Provider names must match a configured provider; unknown names are rejected
-when the policy is saved. Virtual models are not selectors: an alias or a load
-balancer resolves to the concrete provider model before the check runs, so allow
-the target models, not the virtual model. A virtual model name in a list is
-accepted as a bare model ID but never matches anything; a load balancer whose
-targets span providers is only usable when every target it can pick is allowed,
-otherwise requests fail with `400` whenever it picks a disallowed target. The
-user tree shows such a node with an empty effective list.
+when the policy is saved. An entry may also be the name of a **virtual model**
+(such as `smart`): a request asking for that name is authorized by the name
+itself, so the caller never has to know which concrete models sit behind it.
+Inside one list an entry admits the request when it matches either the
+requested name or the resolved target selector; allowlists still intersect
+along the chain, so a child never widens its parent.
+
+Because the name is what gets authorized, a key whose list names an alias sees
+just that alias in `GET /v1/models` and can call it whatever targets it
+currently has — including a load balancer whose targets span providers, which
+used to fail with `400` whenever it picked a disallowed target. The alias is
+listed without target metadata (`owned_by` empty), so the caller cannot infer
+the provider or the concrete model behind it. Entries naming concrete targets
+keep their old meaning: for such a list a load balancer is still only usable
+when every target it can pick is allowed, and a node whose only entry is a
+virtual model name shows an empty effective list in the user tree.
 
 ## Example
 

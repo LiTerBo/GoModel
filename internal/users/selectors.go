@@ -77,6 +77,30 @@ func Matches(allowed []string, selector core.ModelSelector) bool {
 	return false
 }
 
+// MatchesName reports whether the model name a caller asked for satisfies at
+// least one canonical allowlist entry. It is the name-shaped counterpart of
+// Matches: authorization runs on the resolved selector, but an alias is
+// addressed by name, so an entry equal to that name admits the request no
+// matter which concrete target the alias currently resolves to. Provider-wide
+// and provider/model entries need a resolved provider, so they stay on the
+// selector path. An empty allowlist or name matches nothing here.
+func MatchesName(allowed []string, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, entry := range allowed {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if modelselectors.IsGlobal(entry) || entry == name {
+			return true
+		}
+	}
+	return false
+}
+
 // matchesEntry interprets one canonical selector: "/" is global, a trailing
 // slash is provider-wide, a "provider/model" pair is exact, and a bare name is
 // model-wide across providers.

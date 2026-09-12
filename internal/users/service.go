@@ -320,13 +320,25 @@ func (s *Service) Constraints(userPath string) []User {
 
 // AllowsModel reports whether the request may use selector: the credential's
 // own allowlist and every non-empty allowlist on the request user path and
-// its ancestors must all match. Requests without a key or user path are
+// its ancestors must all match. Within one allowlist an entry admits the
+// request when it matches either the model name the caller asked for (an alias
+// is authorized by name, so a key keeps working after the alias is repointed)
+// or the resolved selector. Requests without a key or user path are
 // unrestricted here.
+//
+// The unrestricted path returns before reading anything else: this runs for
+// every candidate selector on the request path, and the allowlists are empty
+// on the common deployment.
 func (s *Service) AllowsModel(ctx context.Context, selector core.ModelSelector) bool {
-	if allowed := core.GetCredentialAllowedModels(ctx); len(allowed) > 0 && !Matches(allowed, selector) {
+	credentialAllowed := core.GetCredentialAllowedModels(ctx)
+	userPath := core.UserPathFromContext(ctx)
+	if len(credentialAllowed) == 0 && userPath == "" {
+		return true
+	}
+	name := core.GetRequestedModelName(ctx)
+	if len(credentialAllowed) > 0 && !allowsModel(credentialAllowed, name, selector) {
 		return false
 	}
-	userPath := core.UserPathFromContext(ctx)
 	if userPath == "" {
 		return true
 	}
@@ -339,11 +351,20 @@ func (s *Service) AllowsModel(ctx context.Context, selector core.ModelSelector) 
 		if !ok || len(user.AllowedModels) == 0 {
 			continue
 		}
-		if !Matches(user.AllowedModels, selector) {
+		if !allowsModel(user.AllowedModels, name, selector) {
 			return false
 		}
 	}
 	return true
+}
+
+// allowsModel reports whether one allowlist admits a request, identified by the
+// name the caller asked for and the selector it resolved to.
+func allowsModel(allowed []string, name string, selector core.ModelSelector) bool {
+	if name != "" && MatchesName(allowed, name) {
+		return true
+	}
+	return Matches(allowed, selector)
 }
 
 func cloneUser(user User) User {
