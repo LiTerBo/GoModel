@@ -121,8 +121,10 @@ console.log(authKey);
 </CodeGroup>
 
 `GET /admin/auth-keys` rows carry `restricted` and `effective_models` — the
-catalog models a request with that key can actually call, with its user path
-policies, its own allowlist, and model-side policies applied.
+models a request with that key can actually call, with its user path
+policies, its own allowlist, and model-side policies applied. Virtual models
+the key may address are listed under their own name, so the column matches
+what `GET /v1/models` returns for that key.
 
 Restrict a key to specific models with the optional `allowed_models` on
 `POST /admin/auth-keys` (omitted means no key-level restriction, like every
@@ -484,7 +486,8 @@ path:
 provider wildcard, `/` for everything); `inherited_from` lists the ancestors
 whose lists also apply. `effective_models` is the path-level result — the node's list, its ancestors'
 lists, and the model-side virtual-model policies — evaluated through the same
-authorizer inference uses; a managed API key's own `allowed_models` may narrow
+authorizer inference uses, with virtual models the path may address listed by
+name; a managed API key's own `allowed_models` may narrow
 a request further. An empty list with `restricted: true` means the node's
 lists intersect to nothing. `configured` is `false` for nodes implied only by keys
 or descendants; `managed: true` marks policies declared in configuration,
