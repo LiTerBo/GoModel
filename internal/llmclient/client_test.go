@@ -1091,6 +1091,9 @@ func TestCircuitBreaker_OpensAfterFailures(t *testing.T) {
 	if !strings.Contains(gatewayErr.Message, "circuit breaker") {
 		t.Errorf("expected circuit breaker message, got: %s", gatewayErr.Message)
 	}
+	if !strings.Contains(gatewayErr.Message, "provider test") {
+		t.Errorf("expected circuit breaker message to identify provider, got: %s", gatewayErr.Message)
+	}
 
 	// Should have made exactly 3 requests (threshold)
 	if attempts.Load() != 3 {
@@ -1385,7 +1388,7 @@ func TestCircuitBreaker_HalfOpenProbeResolvesOnClientError(t *testing.T) {
 	}
 }
 
-func TestCircuitBreaker_RateLimitDoesNotOpenCircuit(t *testing.T) {
+func TestCircuitBreaker_ExcludedRateLimitDoesNotOpenCircuit(t *testing.T) {
 	var attempts atomic.Int32
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1398,10 +1401,11 @@ func TestCircuitBreaker_RateLimitDoesNotOpenCircuit(t *testing.T) {
 	config := DefaultConfig("test", server.URL)
 	config.Retry.MaxRetries = 0
 	config.CircuitBreaker = goconfig.CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 1,
-		SuccessThreshold: 1,
-		Timeout:          time.Second,
+		FailureOnStatuses: []string{"5xx"},
+		Enabled:           true,
+		FailureThreshold:  1,
+		SuccessThreshold:  1,
+		Timeout:           time.Second,
 	}
 	client := New(config, nil)
 

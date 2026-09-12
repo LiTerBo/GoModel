@@ -51,6 +51,33 @@ func ToChatRequestLenient(req *MessagesRequest) (*core.ChatRequest, error) {
 	return toChatRequest(req, true)
 }
 
+// HasUnsignedThinking reports whether an assistant turn replays a thinking
+// block with no signature. Such a block is reasoning some other provider
+// produced (the gateway renders it with an empty signature, because the
+// Anthropic schema requires the member); Anthropic refuses any signature it did
+// not mint, so a request carrying one must take the translated pipeline, which
+// drops the block, instead of being forwarded to Claude verbatim.
+func HasUnsignedThinking(req *MessagesRequest) bool {
+	if req == nil {
+		return false
+	}
+	for _, message := range req.Messages {
+		if message.Role != "assistant" {
+			continue
+		}
+		_, blocks, err := parseContent(message.Content)
+		if err != nil {
+			continue
+		}
+		for _, block := range blocks {
+			if block.Type == "thinking" && strings.TrimSpace(block.Signature) == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func toChatRequest(req *MessagesRequest, lenient bool) (*core.ChatRequest, error) {
 	if req == nil {
 		return nil, core.NewInvalidRequestError("messages request is required", nil)
@@ -162,9 +189,9 @@ func convertMessages(req *MessagesRequest, lenient bool) ([]core.Message, error)
 // blocks become standalone role:"tool" messages that precede the remaining
 // content, matching the OpenAI ordering where tool responses follow the
 // assistant tool call and any user follow-up comes after. Assistant thinking
-// blocks are preserved verbatim on the message so the Anthropic provider can
-// replay them; they have no meaning for other providers and are stripped
-// before the request reaches one.
+// blocks are preserved verbatim under extra_content.anthropic so the Anthropic
+// provider can replay them; the router strips them before any other provider
+// sees the request.
 func convertBlockMessage(role string, blocks []ContentBlock, lenient bool) ([]core.Message, error) {
 	var (
 		toolMessages []core.Message
@@ -190,6 +217,10 @@ func convertBlockMessage(role string, blocks []ContentBlock, lenient bool) ([]co
 			if strings.TrimSpace(block.Name) == "" {
 				return nil, fmt.Errorf("tool_use block is missing name")
 			}
+			extra, err = toolUseExtra(extra, block.ExtraContent)
+			if err != nil {
+				return nil, err
+			}
 			toolCalls = append(toolCalls, core.ToolCall{
 				ID:          block.ID,
 				Type:        "function",
@@ -205,11 +236,15 @@ func convertBlockMessage(role string, blocks []ContentBlock, lenient bool) ([]co
 			if err != nil {
 				return nil, err
 			}
+			extra, err = toolResultExtra(extra, block.IsError)
+			if err != nil {
+				return nil, err
+			}
 			toolMessages = append(toolMessages, core.Message{
 				Role:        "tool",
 				ToolCallID:  id,
 				Content:     content,
-				ExtraFields: toolResultExtra(extra, block.IsError),
+				ExtraFields: extra,
 			})
 		case "thinking", "redacted_thinking":
 			// Only assistant turns carry thinking; anywhere else it is an
@@ -238,13 +273,14 @@ func convertBlockMessage(role string, blocks []ContentBlock, lenient bool) ([]co
 			ToolCalls: toolCalls,
 		}
 		if len(thinking) > 0 {
-			raw, err := json.Marshal(thinking)
+			raw, err := json.Marshal(map[string][]json.RawMessage{core.ThinkingBlocksField: thinking})
 			if err != nil {
 				return nil, fmt.Errorf("thinking blocks: %v", err)
 			}
-			msg.ExtraFields = core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
-				core.ThinkingBlocksField: raw,
-			})
+			msg.ExtraFields, err = msg.ExtraFields.WithExtraContent(core.ExtraContentVendorAnthropic, raw)
+			if err != nil {
+				return nil, fmt.Errorf("thinking blocks: %v", err)
+			}
 		}
 		messages = append(messages, msg)
 	}
@@ -421,16 +457,31 @@ func thinkingBlockJSON(block ContentBlock) json.RawMessage {
 	return raw
 }
 
-// toolResultExtra adds the is_error marker to a tool message's extras.
-func toolResultExtra(extra core.UnknownJSONFields, isError bool) core.UnknownJSONFields {
+// toolResultExtra adds the is_error marker to a tool message's extras under
+// extra_content.anthropic.
+func toolResultExtra(extra core.UnknownJSONFields, isError bool) (core.UnknownJSONFields, error) {
 	if !isError {
-		return extra
+		return extra, nil
 	}
-	fields := map[string]json.RawMessage{core.ToolResultIsErrorField: json.RawMessage("true")}
-	if raw := extra.Lookup("cache_control"); len(raw) > 0 {
-		fields["cache_control"] = raw
+	marker, err := json.Marshal(map[string]bool{core.ToolResultIsErrorField: true})
+	if err != nil {
+		return core.UnknownJSONFields{}, err
 	}
-	return core.UnknownJSONFieldsFromMap(fields)
+	return extra.WithExtraContent(core.ExtraContentVendorAnthropic, marker)
+}
+
+// toolUseExtra carries a tool_use block's extra_content (provider replay
+// state the client echoed back) onto the canonical tool call.
+func toolUseExtra(extra core.UnknownJSONFields, extraContent json.RawMessage) (core.UnknownJSONFields, error) {
+	trimmed := bytes.TrimSpace(extraContent)
+	if len(trimmed) == 0 || core.IsJSONNull(trimmed) {
+		return extra, nil
+	}
+	merged, err := core.MergeUnknownJSONFields(extra, map[string]json.RawMessage{core.ExtraContentField: trimmed})
+	if err != nil {
+		return core.UnknownJSONFields{}, fmt.Errorf("tool_use extra_content: %v", err)
+	}
+	return merged, nil
 }
 
 // decodeSource decodes an image/document source object. A nil result means
@@ -786,66 +837,4 @@ func buildExtraFields(req *MessagesRequest) core.UnknownJSONFields {
 		fields["cache_control"] = core.CloneRawJSON(raw)
 	}
 	return core.UnknownJSONFieldsFromMap(fields)
-}
-
-// EstimateInputTokens returns a provider-agnostic heuristic estimate of the
-// input token count for a Messages request (roughly characters / 4). It is an
-// approximation, not a tokenizer-exact count.
-func EstimateInputTokens(req *MessagesRequest) int {
-	if req == nil {
-		return 0
-	}
-	// Errors are ignored here: count_tokens is a best-effort heuristic and
-	// must not fail on malformed sub-fields that ToChatRequest would reject.
-	system, _ := systemText(req.System)
-	chars := len(system)
-	for _, msg := range req.Messages {
-		text, blocks, err := parseContent(msg.Content)
-		if err != nil {
-			continue
-		}
-		chars += len(text)
-		for _, block := range blocks {
-			chars += len(block.Text) + len(block.Thinking)
-			chars += len(bytes.TrimSpace(block.Input))
-			result, _ := toolResultContent(block.Content, true)
-			chars += len(core.ExtractTextContent(result))
-		}
-	}
-	for _, tool := range req.Tools {
-		chars += len(tool.Name) + len(tool.Description) + len(bytes.TrimSpace(tool.InputSchema))
-	}
-	return tokensFromChars(chars)
-}
-
-// EstimateChatInputTokens returns the same chars/4 heuristic for a canonical
-// chat request. It seeds the stream converter's message_start usage, where the
-// Anthropic contract expects input tokens before the upstream has reported any.
-func EstimateChatInputTokens(req *core.ChatRequest) int {
-	if req == nil {
-		return 0
-	}
-	chars := 0
-	for _, msg := range req.Messages {
-		chars += len(core.ExtractTextContent(msg.Content))
-		for _, call := range msg.ToolCalls {
-			chars += len(call.Function.Name) + len(call.Function.Arguments)
-		}
-	}
-	for _, tool := range req.Tools {
-		if raw, err := json.Marshal(tool); err == nil {
-			chars += len(raw)
-		}
-	}
-	return tokensFromChars(chars)
-}
-
-// tokensFromChars converts a character count to the heuristic token estimate
-// (roughly characters / 4, at least 1 for non-empty input).
-func tokensFromChars(chars int) int {
-	tokens := (chars + 3) / 4
-	if tokens == 0 && chars > 0 {
-		return 1
-	}
-	return tokens
 }

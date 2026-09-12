@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -37,6 +38,7 @@ func (b *bootstrap) initServerDependencies() error {
 	if b.featureCaps.Guardrails {
 		if app.guardrails != nil && app.guardrails.Service != nil {
 			b.translatedRequestPatcher = guardrails.NewWorkflowRequestPatcher(app.workflows.Service)
+			b.pluginChains = app.workflows.Service
 			if appCfg.Guardrails.EnableForBatchProcessing {
 				batchRequestPreparers = append(batchRequestPreparers, guardrails.NewWorkflowBatchPreparer(b.provider, app.workflows.Service))
 			}
@@ -122,6 +124,7 @@ func (b *bootstrap) initServerConfig() error {
 		MetricsEnabled:                  appCfg.Metrics.Enabled,
 		MetricsEndpoint:                 appCfg.Metrics.Endpoint,
 		BodySizeLimit:                   appCfg.Server.BodySizeLimit,
+		StreamStallTimeout:              time.Duration(appCfg.Server.StreamStallTimeout) * time.Second,
 		PprofEnabled:                    appCfg.Server.PprofEnabled,
 		AuditLogger:                     app.audit.Logger,
 		UsageLogger:                     b.serverUsageLogger,
@@ -134,6 +137,7 @@ func (b *bootstrap) initServerConfig() error {
 		FailoverPolicy:                  gateway.NewFailoverPolicy(appCfg.Failover),
 		WorkflowPolicyResolver:          app.workflows.Service,
 		TranslatedRequestPatcher:        b.translatedRequestPatcher,
+		PluginChainsResolver:            b.pluginChains,
 		BatchRequestPreparer:            b.batchRequestPreparer,
 		ExposedModelLister:              vm,
 		KeepOnlyAliasesAtModelsEndpoint: appCfg.Models.KeepOnlyAliasesAtModelsEndpoint,
@@ -146,6 +150,7 @@ func (b *bootstrap) initServerConfig() error {
 		DisablePassthroughRoutes:        !appCfg.Server.EnablePassthroughRoutes,
 		EnabledPassthroughProviders:     appCfg.Server.EnabledPassthroughProviders,
 		RealtimeEnabled:                 appCfg.Server.RealtimeEnabled,
+		AuthVerifyEnabled:               appCfg.Server.AuthVerifyEnabled,
 		AllowPassthroughV1Alias:         &allowPassthroughV1Alias,
 		UserPathHeader:                  appCfg.Server.UserPathHeader,
 		SwaggerEnabled:                  b.swaggerEnabled,
@@ -221,11 +226,9 @@ func (b *bootstrap) initResponseCache() error {
 		PricingResolver: b.pricingResolver,
 		ResponseCache:   rcm,
 	})
-	if err := app.guardrails.Service.SetExecutor(b.ctx, internalGuardrailExecutor); err != nil {
-		return fmt.Errorf("failed to wire internal guardrail executor: %w", err)
-	}
-	if err := app.workflows.Service.Refresh(b.ctx); err != nil {
-		return fmt.Errorf("failed to refresh workflows after wiring internal guardrail executor: %w", err)
+	// Instances pick the executor up on their next call; no rebuild needed.
+	if app.guardrails != nil && app.guardrails.Service != nil {
+		app.guardrails.Service.SetChatCompleter(internalGuardrailExecutor)
 	}
 	return nil
 }

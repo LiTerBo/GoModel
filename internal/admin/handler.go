@@ -20,6 +20,7 @@ import (
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/guardrails"
 	"github.com/enterpilot/gomodel/internal/live"
+	"github.com/enterpilot/gomodel/internal/plugins"
 	"github.com/enterpilot/gomodel/internal/pricingoverrides"
 	"github.com/enterpilot/gomodel/internal/providers"
 	"github.com/enterpilot/gomodel/internal/providers/health"
@@ -51,6 +52,7 @@ type Handler struct {
 	runtimeSettings     *runtimesettings.Service
 	guardrails          guardrails.Catalog
 	guardrailDefs       *guardrails.Service
+	pluginCatalog       *plugins.Catalog
 	liveBroker          *live.Broker
 	runtimeConfig       DashboardConfigResponse
 	runtimeRefresher    RuntimeRefresher
@@ -81,6 +83,7 @@ const (
 	DashboardConfigRateLimitsEnabled    = "RATE_LIMITS_ENABLED"
 	DashboardConfigQuotaTemplates       = "PER_CHILD_QUOTAS_ENABLED"
 	DashboardConfigGuardrailsEnabled    = "GUARDRAILS_ENABLED"
+	DashboardConfigPluginsEnabled       = "PLUGINS_ENABLED"
 	DashboardConfigCacheEnabled         = "CACHE_ENABLED"
 	DashboardConfigRedisURL             = "REDIS_URL"
 	DashboardConfigSemanticCacheEnabled = "SEMANTIC_CACHE_ENABLED"
@@ -106,6 +109,7 @@ type DashboardConfigResponse struct {
 	RateLimitsEnabled     string `json:"RATE_LIMITS_ENABLED,omitempty"`
 	QuotaTemplatesEnabled string `json:"PER_CHILD_QUOTAS_ENABLED,omitempty"`
 	GuardrailsEnabled     string `json:"GUARDRAILS_ENABLED,omitempty"`
+	PluginsEnabled        string `json:"PLUGINS_ENABLED,omitempty"`
 	CacheEnabled          string `json:"CACHE_ENABLED,omitempty"`
 	RedisURL              string `json:"REDIS_URL,omitempty"`
 	SemanticCacheEnabled  string `json:"SEMANTIC_CACHE_ENABLED,omitempty"`
@@ -356,9 +360,21 @@ func WithTagging(service *tagging.Service) Option {
 	}
 }
 
-// WithGuardrailService enables full guardrail definition administration endpoints.
+// WithPluginCatalog enables the plugin listing endpoint.
+func WithPluginCatalog(catalog *plugins.Catalog) Option {
+	return func(h *Handler) {
+		h.pluginCatalog = catalog
+	}
+}
+
+// WithGuardrailService enables full guardrail definition administration
+// endpoints. A nil service (plugin system disabled) leaves them unavailable
+// rather than storing a nil pointer behind the interfaces.
 func WithGuardrailService(service *guardrails.Service) Option {
 	return func(h *Handler) {
+		if service == nil {
+			return
+		}
 		h.guardrails = service
 		h.guardrailDefs = service
 	}
@@ -445,6 +461,7 @@ func normalizeDashboardRuntimeConfig(values DashboardConfigResponse) DashboardCo
 		RateLimitsEnabled:      strings.TrimSpace(values.RateLimitsEnabled),
 		QuotaTemplatesEnabled:  strings.TrimSpace(values.QuotaTemplatesEnabled),
 		GuardrailsEnabled:      strings.TrimSpace(values.GuardrailsEnabled),
+		PluginsEnabled:         strings.TrimSpace(values.PluginsEnabled),
 		CacheEnabled:           strings.TrimSpace(values.CacheEnabled),
 		RedisURL:               strings.TrimSpace(values.RedisURL),
 		SemanticCacheEnabled:   strings.TrimSpace(values.SemanticCacheEnabled),

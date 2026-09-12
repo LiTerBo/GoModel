@@ -4335,6 +4335,37 @@ const docTemplate = `{
                 ]
             }
         },
+        "/v1/auth/verify": {
+            "get": {
+                "description": "Reports whether the presented credential authenticates against this gateway. Returns 401 when it does not. A gateway with no authentication configured has no credential to confirm and answers 200 with valid=false and method=none. Disabled unless AUTH_VERIFY_ENABLED is set.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Verify an API key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.authVerifyResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/core.OpenAIErrorEnvelope"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
         "/v1/batches": {
             "get": {
                 "produces": [
@@ -6148,7 +6179,7 @@ const docTemplate = `{
         },
         "/v1/messages/count_tokens": {
             "post": {
-                "description": "Returns a provider-agnostic heuristic estimate of the input token count.",
+                "description": "Counts the input tokens of a Messages request. Exact when the provider that owns the model has a token counting endpoint (Anthropic); otherwise a calibrated estimate.",
                 "consumes": [
                     "application/json"
                 ],
@@ -6215,6 +6246,57 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/core.OpenAIErrorEnvelope"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/core.OpenAIErrorEnvelope"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/v1/models/{model}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "models"
+                ],
+                "summary": "Retrieve a model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID, e.g. openai/gpt-4.1-mini",
+                        "name": "model",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/core.Model"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/core.OpenAIErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/core.OpenAIErrorEnvelope"
                         }
@@ -7374,6 +7456,9 @@ const docTemplate = `{
                 "PER_CHILD_QUOTAS_ENABLED": {
                     "type": "string"
                 },
+                "PLUGINS_ENABLED": {
+                    "type": "string"
+                },
                 "RATE_LIMITS_ENABLED": {
                     "type": "string"
                 },
@@ -8387,6 +8472,14 @@ const docTemplate = `{
                 "strategy": {
                     "type": "string"
                 },
+                "strategy_config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "strategy_plugin": {
+                    "description": "StrategyPlugin names the routing-strategy plugin for strategy \"plugin\";\nStrategyConfig holds that plugin's route-scoped settings, validated\nagainst its schema (see GET /admin/plugins, route_fields).",
+                    "type": "string"
+                },
                 "target_model": {
                     "type": "string"
                 },
@@ -8695,6 +8788,14 @@ const docTemplate = `{
         "anthropicapi.ResponseContentBlock": {
             "type": "object",
             "properties": {
+                "data": {
+                    "description": "Data is the opaque payload of a redacted_thinking block.",
+                    "type": "string"
+                },
+                "extra_content": {
+                    "description": "ExtraContent is provider replay state on a tool_use block; clients echo\nit back on the next turn (see core.ExtraContentField).",
+                    "type": "object"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -8703,6 +8804,10 @@ const docTemplate = `{
                     "additionalProperties": true
                 },
                 "name": {
+                    "type": "string"
+                },
+                "signature": {
+                    "description": "Signature authenticates a thinking block. Anthropic requires it back\nverbatim when the conversation continues, so clients must echo it. Every\nthinking block carries the member, as the Anthropic schema requires;\nreasoning from a provider that does not sign its output is rendered with\nan empty signature. Hence the pointer: only a thinking block has one.",
                     "type": "string"
                 },
                 "text": {
@@ -8837,6 +8942,60 @@ const docTemplate = `{
                 }
             }
         },
+        "auditlog.GuardrailOutcomeSnapshot": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action is the decision (allow, warn, block, respond) or \"failure\" when\nthe instance errored; FailMode then says whether the chain carried on\n(\"open\") or the request failed (\"closed\").",
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "detail": {},
+                "dropped_events": {
+                    "type": "integer"
+                },
+                "duration_ns": {
+                    "type": "integer"
+                },
+                "edited": {
+                    "description": "Edited reports that the instance changed the request (prompt phase)\nor the response (response and stream phases); Target names which.",
+                    "type": "boolean"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "fail_mode": {
+                    "type": "string"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "phase": {
+                    "type": "string"
+                },
+                "replaced_events": {
+                    "description": "ReplacedEvents and DroppedEvents count the stream events an in-flight\nstream instance rewrote or withheld.",
+                    "type": "integer"
+                },
+                "seq": {
+                    "type": "integer"
+                },
+                "step": {
+                    "type": "integer"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "auditlog.LogData": {
             "type": "object",
             "properties": {
@@ -8873,6 +9032,13 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "guardrails": {
+                    "description": "Guardrails records the outcome of every guardrail (plugin instance)\nthat ran for the request, in execution order across the prompt,\nresponse and stream phases: what each decided, whether it edited the\nrequest or response, and how it failed. It is the decision trail;\nRequestRevisions is the body trail. A configured step without an\noutcome did not run (an earlier block, a cache hit).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/auditlog.GuardrailOutcomeSnapshot"
+                    }
+                },
                 "labels": {
                     "description": "Labels are request labels extracted from configured tagging headers.",
                     "type": "array",
@@ -8898,7 +9064,7 @@ const docTemplate = `{
                     }
                 },
                 "request_revisions": {
-                    "description": "RequestRevisions captures the ingress request-rewrite chain: one entry\nper registered rewriter that ran, in application order. Rewriters that\nchanged the body carry the rewritten body; those that left it alone are\nrecorded with NoChange so the audit trail still shows the step ran.\nRequestBody always remains the original client request; the last\nchanged revision is what was forwarded downstream — when every rewriter\nwas a no-op there is no such revision and the original body is what\nwent upstream.",
+                    "description": "RequestRevisions captures the ingress request-rewrite chain: one entry\nper registered rewriter that ran, in application order, followed by the\nprompt-guardrail steps. Rewriters that changed the body carry the\nrewritten body; those that left it alone are recorded with NoChange so\nthe audit trail still shows the step ran. Each prompt guardrail that\nedited the prompt is a changed revision, in step order, carrying the\nrequest as it stood right after that step (the next step's input) with\nits sizes; one that objected (warn, block, respond) or failed without\nediting is a NoChange entry carrying the decision, and a silent allow\nleaves no entry. RequestBody always remains the original client\nrequest; the last changed revision is what was forwarded downstream —\nwhen every step was a no-op there is no such revision and the original\nbody is what went upstream.",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/auditlog.RequestRevisionSnapshot"
@@ -9691,7 +9857,8 @@ const docTemplate = `{
                 "invalid_request_error",
                 "authentication_error",
                 "not_found_error",
-                "permission_error"
+                "permission_error",
+                "internal_error"
             ],
             "x-enum-varnames": [
                 "ErrorTypeProvider",
@@ -9699,7 +9866,8 @@ const docTemplate = `{
                 "ErrorTypeInvalidRequest",
                 "ErrorTypeAuthentication",
                 "ErrorTypeNotFound",
-                "ErrorTypePermission"
+                "ErrorTypePermission",
+                "ErrorTypeInternal"
             ]
         },
         "core.FileContent": {
@@ -10118,6 +10286,10 @@ const docTemplate = `{
                 "input_per_mtok": {
                     "type": "number"
                 },
+                "output_image_per_mtok": {
+                    "description": "OutputImagePerMtok prices generated image tokens, which providers bill at a\ndifferent rate from text output (OpenAI gpt-image-1: $40/Mtok image output\nand no text output rate at all; Gemini 3 Pro Image: $120/Mtok image output\nversus $12/Mtok text). It is the output rate on the image endpoints.",
+                    "type": "number"
+                },
                 "output_per_mtok": {
                     "type": "number"
                 },
@@ -10125,6 +10297,7 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "per_image": {
+                    "description": "PerImage prices a returned image as a flat unit, for models that report no\ntoken usage at all (DALL·E, Imagen, grok-imagine). It is an alternative\nexpression of the same charge as OutputImagePerMtok, never an addition to\nit: catalog entries carry both, so only one may be applied (see\nusage.CalculateGranularCost).",
                     "type": "number"
                 },
                 "per_page": {
@@ -10669,6 +10842,14 @@ const docTemplate = `{
                 }
             }
         },
+        "core.ResponsesIncompleteDetails": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "core.ResponsesOutputItem": {
             "type": "object",
             "properties": {
@@ -10699,6 +10880,10 @@ const docTemplate = `{
                 "type": {
                     "description": "\"message\", \"function_call\", etc.",
                     "type": "string"
+                },
+                "extra_content": {
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },
@@ -10813,6 +10998,14 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "incomplete_details": {
+                    "description": "IncompleteDetails explains a status of \"incomplete\": the model hit\nmax_output_tokens, was stopped by a content filter, or the upstream\nstream was interrupted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/core.ResponsesIncompleteDetails"
+                        }
+                    ]
+                },
                 "model": {
                     "type": "string"
                 },
@@ -10826,11 +11019,15 @@ const docTemplate = `{
                         "$ref": "#/definitions/core.ResponsesOutputItem"
                     }
                 },
+                "previous_response_id": {
+                    "description": "PreviousResponseID names the response this one was chained from, as\nOpenAI echoes it; stored snapshots follow it to rebuild the history.",
+                    "type": "string"
+                },
                 "provider": {
                     "type": "string"
                 },
                 "status": {
-                    "description": "\"completed\", \"failed\", \"in_progress\"",
+                    "description": "\"completed\", \"incomplete\", \"failed\", \"in_progress\"",
                     "type": "string"
                 },
                 "usage": {
@@ -11028,6 +11225,9 @@ const docTemplate = `{
                 "input_per_mtok": {
                     "type": "number"
                 },
+                "output_image_per_mtok": {
+                    "type": "number"
+                },
                 "output_per_mtok": {
                     "type": "number"
                 },
@@ -11129,6 +11329,26 @@ const docTemplate = `{
                 },
                 "display_name": {
                     "type": "string"
+                }
+            }
+        },
+        "server.authVerifyResponse": {
+            "type": "object",
+            "properties": {
+                "key_id": {
+                    "description": "KeyID identifies the managed auth key that authenticated the request.\nAbsent for every other method.",
+                    "type": "string"
+                },
+                "method": {
+                    "description": "Method is \"api_key\" for a managed key stored in the database,\n\"master_key\" for the bootstrap key, an extension-specific value for\nidentities supplied by an authentication extension, or \"none\" when the\nrequest carried no credential this gateway recognizes, which is also\nwhen Valid is false.",
+                    "type": "string"
+                },
+                "user_path": {
+                    "description": "UserPath is the subtree the credential is bound to. Absent when the\ncredential is global, which every master-key caller is.",
+                    "type": "string"
+                },
+                "valid": {
+                    "type": "boolean"
                 }
             }
         },
@@ -11982,6 +12202,13 @@ const docTemplate = `{
                 "strategy": {
                     "type": "string"
                 },
+                "strategy_config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "strategy_plugin": {
+                    "type": "string"
+                },
                 "targets": {
                     "type": "array",
                     "items": {
@@ -12042,6 +12269,14 @@ const docTemplate = `{
                 "strategy": {
                     "type": "string"
                 },
+                "strategy_config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "strategy_plugin": {
+                    "description": "StrategyPlugin names the routing-strategy plugin consulted when Strategy\nis \"plugin\"; StrategyConfig is that plugin's per-virtual-model\nconfiguration, validated against its route-scoped fields. Both are\ncleared for every other strategy.",
+                    "type": "string"
+                },
                 "targets": {
                     "type": "array",
                     "items": {
@@ -12075,6 +12310,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "extra_content": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "id": {
                     "type": "string"
                 },
@@ -12103,6 +12342,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "thinking": {
+                    "type": "string"
+                },
+                "signature": {
+                    "type": "string"
+                },
+                "data": {
                     "type": "string"
                 },
                 "tool_use_id": {

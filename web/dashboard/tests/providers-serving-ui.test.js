@@ -105,7 +105,7 @@ test("no provider switch speaks Enable/Disable any more", async () => {
 test("registration and serving wording exists in both language catalogs", async () => {
   const { readFile } = await import("node:fs/promises");
   const en = JSON.parse(await readFile(new URL("../messages/en.json", import.meta.url), "utf8"));
-  const zh = JSON.parse(await readFile(new URL("../messages/zh.json", import.meta.url), "utf8"));
+  const zh = JSON.parse(await readFile(new URL("../messages/zh-CN.json", import.meta.url), "utf8"));
 
   const expected = {
     providers_registration_status: "供应商登记状态",

@@ -19,6 +19,8 @@ type upsertGuardrailRequest struct {
 	Description string          `json:"description,omitempty"`
 	UserPath    string          `json:"user_path,omitempty"`
 	Config      json.RawMessage `json:"config"`
+	FailMode    string          `json:"fail_mode,omitempty"`
+	TimeoutMS   int             `json:"timeout_ms,omitempty"`
 }
 
 type deleteGuardrailRequest struct {
@@ -67,12 +69,25 @@ func (h *Handler) UpsertGuardrail(c *echo.Context) error {
 	h.mutationMu.Lock()
 	defer h.mutationMu.Unlock()
 
+	// Refuse a type whose phases no longer cover the steps of the active
+	// workflows that reference this guardrail: the definition would be
+	// stored and the recompile would fail, leaving state that cannot load.
+	conflicts, err := h.activeWorkflowPhaseConflicts(c.Request().Context(), name, req.Type)
+	if err != nil {
+		return handleError(c, err)
+	}
+	if len(conflicts) > 0 {
+		return handleError(c, core.NewInvalidRequestError("guardrail type "+strings.TrimSpace(req.Type)+" does not support the phases used by active workflows: "+strings.Join(conflicts, ", "), nil))
+	}
+
 	if err := h.guardrailDefs.Upsert(c.Request().Context(), guardrails.Definition{
 		Name:        name,
 		Type:        req.Type,
 		Description: req.Description,
 		UserPath:    userPath,
 		Config:      req.Config,
+		FailMode:    req.FailMode,
+		TimeoutMS:   req.TimeoutMS,
 	}); err != nil {
 		return handleError(c, guardrailWriteError(err))
 	}
@@ -80,11 +95,11 @@ func (h *Handler) UpsertGuardrail(c *echo.Context) error {
 		return handleError(c, err)
 	}
 
-	definition, ok := h.guardrailDefs.Get(name)
+	view, ok := h.guardrailDefs.GetView(name)
 	if !ok {
 		return c.NoContent(http.StatusNoContent)
 	}
-	return c.JSON(http.StatusOK, guardrails.ViewFromDefinition(*definition))
+	return c.JSON(http.StatusOK, view)
 }
 
 // DeleteGuardrail handles DELETE /admin/guardrails

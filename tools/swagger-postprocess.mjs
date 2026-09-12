@@ -127,6 +127,7 @@ function ensureAnthropicContentBlockSchema() {
     type: "object",
     properties: {
       content: anthropicContentSchema(),
+      extra_content: freeFormObjectSchema(),
       id: { type: "string" },
       input: freeFormObjectSchema(),
       is_error: { type: "boolean" },
@@ -134,10 +135,18 @@ function ensureAnthropicContentBlockSchema() {
       source: stringOrFreeFormObjectSchema(),
       text: { type: "string" },
       thinking: { type: "string" },
+      // thinking blocks are replayed with the signature Anthropic issued;
+      // redacted ones carry their opaque payload instead.
+      signature: { type: "string" },
+      data: { type: "string" },
       tool_use_id: { type: "string" },
       type: { type: "string" },
     },
   };
+}
+
+function applyResponsesReplayStateSchema() {
+  schema("core.ResponsesOutputItem").properties.extra_content = freeFormObjectSchema();
 }
 
 function applyAnthropicMessageSchemas() {
@@ -149,6 +158,7 @@ function applyAnthropicMessageSchemas() {
 }
 
 applyAnthropicMessageSchemas();
+applyResponsesReplayStateSchema();
 ensureRequiredProperty("core.ResponsesConversationRef", "id");
 
 // Virtual-models admin contract: mirror the required field and array bounds the

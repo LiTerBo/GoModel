@@ -27,12 +27,15 @@ import (
 
 	"github.com/enterpilot/gomodel/internal/auditlog"
 	batchstore "github.com/enterpilot/gomodel/internal/batch"
+	"github.com/enterpilot/gomodel/internal/cache"
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/filestore"
 	"github.com/enterpilot/gomodel/internal/gateway"
 	"github.com/enterpilot/gomodel/internal/guardrails"
 	"github.com/enterpilot/gomodel/internal/observability"
+	"github.com/enterpilot/gomodel/internal/plugins"
 	provideradapter "github.com/enterpilot/gomodel/internal/providers"
+	"github.com/enterpilot/gomodel/internal/responsecache"
 	"github.com/enterpilot/gomodel/internal/responsestore"
 	"github.com/enterpilot/gomodel/internal/usage"
 	"github.com/enterpilot/gomodel/internal/virtualmodels"
@@ -472,10 +475,12 @@ type mockProvider struct {
 	passthroughResponse     *core.PassthroughResponse
 	passthroughErr          error
 	chatCompletionCalls     int
+	embeddingCalls          int
 	lastPassthroughProvider string
 	lastPassthroughReq      *core.PassthroughRequest
 
 	responseGetResponse         *core.ResponsesResponse
+	responseGetHook             func()
 	responseInputItemsResponse  *core.ResponseInputItemListResponse
 	responseCancelResponse      *core.ResponsesResponse
 	responseDeleteResponse      *core.ResponseDeleteResponse
@@ -817,6 +822,7 @@ func (m *mockProvider) StreamResponses(_ context.Context, _ *core.ResponsesReque
 }
 
 func (m *mockProvider) Embeddings(_ context.Context, _ *core.EmbeddingRequest) (*core.EmbeddingResponse, error) {
+	m.embeddingCalls++
 	if m.embeddingErr != nil {
 		return nil, m.embeddingErr
 	}
@@ -840,6 +846,9 @@ func (m *mockProvider) Passthrough(_ context.Context, providerType string, req *
 
 func (m *mockProvider) GetResponse(_ context.Context, providerType, id string, _ core.ResponseRetrieveParams) (*core.ResponsesResponse, error) {
 	m.responseGetCalls = append(m.responseGetCalls, responseCall{provider: providerType, id: id})
+	if m.responseGetHook != nil {
+		m.responseGetHook()
+	}
 	if m.responseLifecycleErr != nil {
 		return nil, m.responseLifecycleErr
 	}
@@ -1643,12 +1652,7 @@ func TestChatCompletion_UsesExplicitAliasResolverWithoutProviderDecorator(t *tes
 }
 
 func TestChatCompletion_UsesExplicitTranslatedRequestPatcher(t *testing.T) {
-	pipeline := guardrails.NewPipeline()
-	systemPrompt, err := guardrails.NewSystemPromptGuardrail("test", guardrails.SystemPromptInject, "guardrail system")
-	if err != nil {
-		t.Fatalf("NewSystemPromptGuardrail() error = %v", err)
-	}
-	pipeline.Add(systemPrompt, 0)
+	chains := newSystemPromptChains(t, "guardrail system")
 
 	inner := &capturingProvider{
 		supportedModels: []string{"gpt-5-nano"},
@@ -1673,7 +1677,7 @@ func TestChatCompletion_UsesExplicitTranslatedRequestPatcher(t *testing.T) {
 		},
 	}
 
-	patcher := guardrails.NewWorkflowRequestPatcher(staticPipelineResolver{pipeline: pipeline})
+	patcher := guardrails.NewWorkflowRequestPatcher(staticChainsResolver{chains: chains})
 
 	e := echo.New()
 	handler := newHandler(inner, nil, nil, nil, nil, nil, nil, patcher)
@@ -1702,7 +1706,7 @@ func TestChatCompletion_UsesExplicitTranslatedRequestPatcher(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	err = handler.ChatCompletion(c)
+	err := handler.ChatCompletion(c)
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
@@ -1724,12 +1728,7 @@ func TestChatCompletion_UsesExplicitTranslatedRequestPatcher(t *testing.T) {
 }
 
 func TestBatches_UsesExplicitGuardrailBatchPreparer(t *testing.T) {
-	pipeline := guardrails.NewPipeline()
-	systemPrompt, err := guardrails.NewSystemPromptGuardrail("test", guardrails.SystemPromptInject, "guardrail system")
-	if err != nil {
-		t.Fatalf("NewSystemPromptGuardrail() error = %v", err)
-	}
-	pipeline.Add(systemPrompt, 0)
+	chains := newSystemPromptChains(t, "guardrail system")
 
 	mock := &mockProvider{
 		supportedModels: []string{"gpt-5-nano"},
@@ -1745,7 +1744,7 @@ func TestBatches_UsesExplicitGuardrailBatchPreparer(t *testing.T) {
 			RequestCounts: core.BatchRequestCounts{Total: 1},
 		},
 	}
-	batchPreparer := guardrails.NewWorkflowBatchPreparer(mock, staticPipelineResolver{pipeline: pipeline})
+	batchPreparer := guardrails.NewWorkflowBatchPreparer(mock, staticChainsResolver{chains: chains})
 
 	e := echo.New()
 	handler := NewHandler(mock, nil, nil, nil)
@@ -1767,7 +1766,7 @@ func TestBatches_UsesExplicitGuardrailBatchPreparer(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	err = handler.Batches(c)
+	err := handler.Batches(c)
 	if err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
@@ -2419,6 +2418,20 @@ func TestRecordStreamingError_ClassifiesClientDisconnect(t *testing.T) {
 			ctx:      canceledCtx,
 			err:      nil,
 			wantType: "client_disconnected",
+		},
+		{
+			name:     "stall deadline expiry",
+			ctx:      context.Background(),
+			err:      fmt.Errorf("%w for 1m0s: write tcp: i/o timeout", ErrClientStall),
+			wantType: "client_stalled",
+		},
+		{
+			// net/http cancels the request context once a write fails, so a
+			// stall usually arrives with a canceled ctx; the stall still wins.
+			name:     "stall deadline expiry with canceled ctx",
+			ctx:      canceledCtx,
+			err:      fmt.Errorf("%w for 1m0s: write tcp: i/o timeout", ErrClientStall),
+			wantType: "client_stalled",
 		},
 	}
 
@@ -3249,6 +3262,135 @@ func TestEmbeddings_ProviderReturnsError(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "embeddings not supported") {
 		t.Errorf("expected error message about embeddings, got: %s", body)
+	}
+}
+
+// TestEmbeddings_ExactCache covers the exact cache on /v1/embeddings: an
+// identical repeat is served from the cache, and anything the provider would
+// answer differently for (input, model, dimensions, encoding_format) or a
+// no-store request still reaches the provider.
+func TestEmbeddings_ExactCache(t *testing.T) {
+	const firstBody = `{"model":"text-embedding-3-small","input":"hello world","dimensions":256,"encoding_format":"float"}`
+
+	tests := []struct {
+		name       string
+		secondBody string
+		header     string
+		wantHit    bool
+	}{
+		{name: "identical request hits", secondBody: firstBody, wantHit: true},
+		{name: "reformatted request hits", secondBody: `{ "input":"hello world", "model":"text-embedding-3-small", "encoding_format":"float", "dimensions":256 }`, wantHit: true},
+		{name: "different input misses", secondBody: `{"model":"text-embedding-3-small","input":"goodbye world","dimensions":256,"encoding_format":"float"}`},
+		{name: "different model misses", secondBody: `{"model":"text-embedding-3-large","input":"hello world","dimensions":256,"encoding_format":"float"}`},
+		{name: "different dimensions misses", secondBody: `{"model":"text-embedding-3-small","input":"hello world","dimensions":512,"encoding_format":"float"}`},
+		{name: "different encoding_format misses", secondBody: `{"model":"text-embedding-3-small","input":"hello world","dimensions":256,"encoding_format":"base64"}`},
+		{name: "different user misses", secondBody: `{"model":"text-embedding-3-small","input":"hello world","dimensions":256,"encoding_format":"float","user":"tenant-b"}`},
+		{name: "no-store bypasses", secondBody: firstBody, header: "no-store"},
+		{name: "no-cache bypasses", secondBody: firstBody, header: "no-cache"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockProvider{
+				supportedModels: []string{"text-embedding-3-small", "text-embedding-3-large"},
+				embeddingResponse: &core.EmbeddingResponse{
+					Object: "list",
+					Data: []core.EmbeddingData{
+						{Object: "embedding", Embedding: json.RawMessage(`[0.1,0.2,0.3]`), Index: 0},
+					},
+					Model: "text-embedding-3-small",
+					Usage: core.EmbeddingUsage{PromptTokens: 5, TotalTokens: 5},
+				},
+			}
+
+			store := cache.NewMapStore()
+			defer store.Close()
+			mw := responsecache.NewResponseCacheMiddlewareWithStore(store, time.Hour)
+			defer mw.Close()
+
+			e := echo.New()
+			handler := NewHandler(mock, nil, nil, nil)
+			handler.responseCache = mw
+
+			call := func(body, cacheControl string) *httptest.ResponseRecorder {
+				t.Helper()
+				req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				if cacheControl != "" {
+					req.Header.Set("Cache-Control", cacheControl)
+				}
+				rec := httptest.NewRecorder()
+				if err := handler.Embeddings(e.NewContext(req, rec)); err != nil {
+					t.Fatalf("handler.Embeddings() error = %v", err)
+				}
+				if rec.Code != http.StatusOK {
+					t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+				}
+				return rec
+			}
+
+			first := call(firstBody, "")
+			if got := first.Header().Get("X-Cache"); got != "" {
+				t.Fatalf("first request X-Cache = %q, want empty", got)
+			}
+			// The cache write is asynchronous; drain it before the repeat.
+			if err := mw.Close(); err != nil {
+				t.Fatalf("flush cache writes: %v", err)
+			}
+
+			second := call(tt.secondBody, tt.header)
+			gotHit := second.Header().Get("X-Cache") == "HIT (exact)"
+			if gotHit != tt.wantHit {
+				t.Fatalf("second request X-Cache = %q, want hit = %v", second.Header().Get("X-Cache"), tt.wantHit)
+			}
+			wantCalls := 2
+			if tt.wantHit {
+				wantCalls = 1
+				if second.Body.String() != first.Body.String() {
+					t.Fatalf("cached body = %s, want %s", second.Body.String(), first.Body.String())
+				}
+			}
+			if mock.embeddingCalls != wantCalls {
+				t.Fatalf("provider calls = %d, want %d", mock.embeddingCalls, wantCalls)
+			}
+		})
+	}
+}
+
+// TestEmbeddings_ProviderErrorNotCached ensures a failed embeddings request is
+// not stored, so the retry still reaches the provider.
+func TestEmbeddings_ProviderErrorNotCached(t *testing.T) {
+	mock := &mockProvider{
+		supportedModels: []string{"text-embedding-3-small"},
+		embeddingErr:    core.NewProviderError("openai", http.StatusInternalServerError, "boom", nil),
+	}
+
+	store := cache.NewMapStore()
+	defer store.Close()
+	mw := responsecache.NewResponseCacheMiddlewareWithStore(store, time.Hour)
+	defer mw.Close()
+
+	e := echo.New()
+	handler := NewHandler(mock, nil, nil, nil)
+	handler.responseCache = mw
+
+	const body = `{"model":"text-embedding-3-small","input":"hello world"}`
+	for i := range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		if err := handler.Embeddings(e.NewContext(req, rec)); err != nil {
+			t.Fatalf("handler.Embeddings() error = %v", err)
+		}
+		if rec.Code == http.StatusOK {
+			t.Fatalf("request %d: status = 200, want an error status", i+1)
+		}
+		if got := rec.Header().Get("X-Cache"); got != "" {
+			t.Fatalf("request %d: X-Cache = %q, want empty", i+1, got)
+		}
+	}
+	if mock.embeddingCalls != 2 {
+		t.Fatalf("provider calls = %d, want 2", mock.embeddingCalls)
 	}
 }
 
@@ -5799,6 +5941,9 @@ func TestGetFileContent_TypedNilResponseReturnsBadGateway(t *testing.T) {
 		providerTypes: map[string]string{
 			"gpt-4o-mini": "openai",
 		},
+		providerNames: map[string]string{
+			"gpt-4o-mini": "openai-primary",
+		},
 		fileContentByProv: map[string]*core.FileContentResponse{
 			"openai": nil,
 		},
@@ -5823,8 +5968,11 @@ func TestGetFileContent_TypedNilResponseReturnsBadGateway(t *testing.T) {
 	if !strings.Contains(body, "provider_error") {
 		t.Fatalf("expected provider_error body, got: %s", body)
 	}
-	if !strings.Contains(body, "provider returned empty file content response") {
+	if !strings.Contains(body, "provider openai-primary returned empty file content response") {
 		t.Fatalf("expected empty file content response message, got: %s", body)
+	}
+	if !strings.Contains(body, `"provider":"openai-primary"`) {
+		t.Fatalf("expected provider in response body, got: %s", body)
 	}
 }
 
@@ -7192,13 +7340,13 @@ func TestIsNativeBatchResultsPending(t *testing.T) {
 	}
 }
 
-// staticPipelineResolver returns a fixed guardrails pipeline regardless of
-// context, letting tests drive the production WorkflowRequestPatcher /
-// WorkflowBatchPreparer with an explicit pipeline.
-type staticPipelineResolver struct{ pipeline *guardrails.Pipeline }
+// staticChainsResolver returns fixed plugin chains regardless of context,
+// letting tests drive the production WorkflowRequestPatcher /
+// WorkflowBatchPreparer and the response/stream phases with explicit chains.
+type staticChainsResolver struct{ chains *plugins.Chains }
 
-func (s staticPipelineResolver) PipelineForContext(context.Context) *guardrails.Pipeline {
-	return s.pipeline
+func (s staticChainsResolver) ChainsForContext(context.Context) *plugins.Chains {
+	return s.chains
 }
 
 // A caller that carries only the user-path header (no managed key) must get
@@ -7281,4 +7429,252 @@ func (a *userPathModelAuthorizer) FilterPublicModels(ctx context.Context, models
 		}
 	}
 	return out
+}
+
+// stalledCachedClientWriter fails every body write the way the stall
+// deadline writer does once the client stops reading.
+type stalledCachedClientWriter struct {
+	http.ResponseWriter
+}
+
+func (w *stalledCachedClientWriter) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("%w for 3s: write tcp: i/o timeout", ErrClientStall)
+}
+
+func (w *stalledCachedClientWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// TestHandleWithCache_ClassifiesStalledClientOnCachedStream records a client
+// that stalled while a cached stream was replayed: the audit entry carries
+// error_type client_stalled instead of a clean cache hit, matching the live
+// stream path.
+func TestHandleWithCache_ClassifiesStalledClientOnCachedStream(t *testing.T) {
+	store := cache.NewMapStore()
+	defer store.Close()
+	mw := responsecache.NewResponseCacheMiddlewareWithStore(store, time.Hour)
+	s := &translatedInferenceService{responseCache: mw}
+
+	req := &core.ChatRequest{Model: "gpt-4o-mini", Stream: true, Messages: []core.Message{{Role: "user", Content: "cached-stall"}}}
+	body, err := marshalRequestBody(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	e := echo.New()
+	newContext := func(w http.ResponseWriter) *echo.Context {
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		return e.NewContext(r, w)
+	}
+
+	primeCtx := newContext(httptest.NewRecorder())
+	if err := mw.HandleRequest(primeCtx, body, func() error {
+		primeCtx.Response().Header().Set("Content-Type", "text/event-stream")
+		primeCtx.Response().WriteHeader(http.StatusOK)
+		_, _ = primeCtx.Response().Write([]byte("data: {\"id\":\"chatcmpl-stream\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"streamed\"},\"finish_reason\":null}]}\n\n" +
+			"data: {\"id\":\"chatcmpl-stream\",\"object\":\"chat.completion.chunk\",\"created\":1234567890,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":1,\"total_tokens\":10}}\n\n" +
+			"data: [DONE]\n\n"))
+		return nil
+	}); err != nil {
+		t.Fatalf("prime cache: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("wait for cache write: %v", err)
+	}
+
+	c := newContext(&stalledCachedClientWriter{ResponseWriter: httptest.NewRecorder()})
+	entry := &auditlog.LogEntry{ID: "audit-entry"}
+	c.Set(string(auditlog.LogEntryKey), entry)
+	err = handleWithCache(s, c, req, nil, func(*echo.Context, *core.ChatRequest, *core.Workflow) error {
+		t.Fatal("cached stream must not dispatch to the provider")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("handleWithCache() error = %v, want nil after recording the stall", err)
+	}
+	if entry.ErrorType != "client_stalled" {
+		t.Fatalf("error_type = %q, want client_stalled", entry.ErrorType)
+	}
+	if entry.Data == nil || !strings.Contains(entry.Data.ErrorMessage, ErrClientStall.Error()) {
+		t.Fatalf("error_message = %#v, want the stall cause", entry.Data)
+	}
+	if entry.CacheType != auditlog.CacheTypeExact {
+		t.Fatalf("cache_type = %q, want %q", entry.CacheType, auditlog.CacheTypeExact)
+	}
+}
+
+// guardrailChainWorkflow builds a resolved workflow whose policy carries the
+// given guardrail chain identity (plugins.Chains.CacheHash).
+func guardrailChainWorkflow(chainHash string) *core.Workflow {
+	return &core.Workflow{
+		Mode:         core.ExecutionModeTranslated,
+		ProviderType: "openai",
+		Resolution: &core.RequestModelResolution{
+			ResolvedSelector: core.ModelSelector{Provider: "openai", Model: "gpt-4o-mini"},
+		},
+		Policy: &core.ResolvedWorkflowPolicy{
+			VersionID:      "v-" + chainHash,
+			Features:       core.DefaultWorkflowFeatures(),
+			GuardrailsHash: chainHash,
+		},
+	}
+}
+
+// cacheWriteSignalStore reports each completed cache write so a test can wait
+// for the asynchronous store without shutting the middleware down.
+type cacheWriteSignalStore struct {
+	cache.Store
+	writes chan struct{}
+}
+
+func newCacheWriteSignalStore() *cacheWriteSignalStore {
+	return &cacheWriteSignalStore{Store: cache.NewMapStore(), writes: make(chan struct{}, 16)}
+}
+
+func (s *cacheWriteSignalStore) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	err := s.Store.Set(ctx, key, value, ttl)
+	select {
+	case s.writes <- struct{}{}:
+	default:
+	}
+	return err
+}
+
+func (s *cacheWriteSignalStore) waitForWrite(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.writes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the response cache write")
+	}
+}
+
+// driveCachedChatRequest runs handleWithCache the way the translated service
+// does, with the workflow's guardrail chain identity on the request context.
+func driveCachedChatRequest(
+	t *testing.T,
+	s *translatedInferenceService,
+	orchestrator *gateway.InferenceOrchestrator,
+	workflow *core.Workflow,
+	req *core.ChatRequest,
+	body []byte,
+	dispatch func(*echo.Context, *core.ChatRequest, *core.Workflow) error,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(orchestrator.WithCacheRequestContext(r.Context(), workflow))
+	c := e.NewContext(r, rec)
+	if err := handleWithCache(s, c, req, workflow, dispatch); err != nil {
+		t.Fatalf("handleWithCache: %v", err)
+	}
+	return rec
+}
+
+// TestHandleWithCache_ExactEntryIsScopedToGuardrailChain covers the policy
+// bypass where a cached body produced without a response guardrail was replayed
+// to a request whose workflow declares one. Cache hits skip dispatch, where the
+// response and stream chains run, so an entry may only serve a matching chain.
+func TestHandleWithCache_ExactEntryIsScopedToGuardrailChain(t *testing.T) {
+	store := newCacheWriteSignalStore()
+	mw := responsecache.NewResponseCacheMiddlewareWithStore(store, time.Hour)
+	defer mw.Close()
+	s := &translatedInferenceService{responseCache: mw}
+	orchestrator := gateway.NewInferenceOrchestrator(gateway.InferenceConfig{})
+
+	req := &core.ChatRequest{Model: "gpt-4o-mini", Messages: []core.Message{{Role: "user", Content: "give me the key"}}}
+	body, err := marshalRequestBody(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	unguarded := guardrailChainWorkflow("")
+	redacting := guardrailChainWorkflow("response-redaction-chain")
+
+	dispatches := 0
+	raw := func(c *echo.Context, _ *core.ChatRequest, _ *core.Workflow) error {
+		dispatches++
+		return c.JSON(http.StatusOK, map[string]string{"answer": "sk-ABCDEFGHIJKLMNOPQRSTUVWX1234"})
+	}
+
+	if got := driveCachedChatRequest(t, s, orchestrator, unguarded, req, body, raw).Header().Get("X-Cache"); got != "" {
+		t.Fatalf("priming request X-Cache = %q, want a miss", got)
+	}
+	store.waitForWrite(t)
+
+	// Same chain: still a hit, and dispatch is skipped.
+	hit := driveCachedChatRequest(t, s, orchestrator, unguarded, req, body, raw)
+	if got := hit.Header().Get("X-Cache"); got != "HIT (exact)" {
+		t.Fatalf("unchanged chain X-Cache = %q, want HIT (exact)", got)
+	}
+	if dispatches != 1 {
+		t.Fatalf("dispatches after the hit = %d, want 1", dispatches)
+	}
+
+	// A workflow with a response-phase redaction step must not be served the
+	// body stored under the unguarded chain.
+	guarded := driveCachedChatRequest(t, s, orchestrator, redacting, req, body, func(c *echo.Context, _ *core.ChatRequest, _ *core.Workflow) error {
+		dispatches++
+		return c.JSON(http.StatusOK, map[string]string{"answer": "[redacted]"})
+	})
+	if got := guarded.Header().Get("X-Cache"); got != "" {
+		t.Fatalf("changed chain X-Cache = %q, want a miss", got)
+	}
+	if dispatches != 2 {
+		t.Fatalf("changed chain must run dispatch, dispatches = %d", dispatches)
+	}
+	if strings.Contains(guarded.Body.String(), "sk-ABCDEFGHIJKLMNOPQRSTUVWX1234") {
+		t.Fatalf("response guardrail was bypassed by the cache: %s", guarded.Body.String())
+	}
+
+	// The guarded miss stores its own entry, which replays only to its chain.
+	store.waitForWrite(t)
+	replay := driveCachedChatRequest(t, s, orchestrator, redacting, req, body, raw)
+	if got := replay.Header().Get("X-Cache"); got != "HIT (exact)" {
+		t.Fatalf("second request on the guarded chain X-Cache = %q, want HIT (exact)", got)
+	}
+	if !strings.Contains(replay.Body.String(), "[redacted]") {
+		t.Fatalf("guarded chain replayed %s, want the guarded body", replay.Body.String())
+	}
+	if dispatches != 2 {
+		t.Fatalf("guarded hit should not dispatch again, dispatches = %d", dispatches)
+	}
+}
+
+// TestHandleWithCache_BlockedResponseIsNotServedFromCache covers a response
+// guardrail that blocks: the blocked response is never stored, so a repeat
+// request runs the chain again instead of replaying a would-be hit.
+func TestHandleWithCache_BlockedResponseIsNotServedFromCache(t *testing.T) {
+	store := cache.NewMapStore()
+	defer store.Close()
+	mw := responsecache.NewResponseCacheMiddlewareWithStore(store, time.Hour)
+	defer mw.Close()
+	s := &translatedInferenceService{responseCache: mw}
+	orchestrator := gateway.NewInferenceOrchestrator(gateway.InferenceConfig{})
+
+	req := &core.ChatRequest{Model: "gpt-4o-mini", Messages: []core.Message{{Role: "user", Content: "blocked"}}}
+	body, err := marshalRequestBody(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	workflow := guardrailChainWorkflow("response-block-chain")
+
+	dispatches := 0
+	blocking := func(c *echo.Context, _ *core.ChatRequest, _ *core.Workflow) error {
+		dispatches++
+		return c.JSON(http.StatusUnavailableForLegalReasons, map[string]string{"error": "blocked by guardrail"})
+	}
+
+	for i := range 2 {
+		rec := driveCachedChatRequest(t, s, orchestrator, workflow, req, body, blocking)
+		if got := rec.Header().Get("X-Cache"); got != "" {
+			t.Fatalf("request %d X-Cache = %q, want no cache hit for a blocked response", i+1, got)
+		}
+		if rec.Code != http.StatusUnavailableForLegalReasons {
+			t.Fatalf("request %d status = %d, want the guardrail block status", i+1, rec.Code)
+		}
+	}
+	if dispatches != 2 {
+		t.Fatalf("dispatches = %d, want the blocking chain to run on every request", dispatches)
+	}
 }

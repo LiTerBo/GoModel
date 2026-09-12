@@ -3,8 +3,10 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,12 +16,13 @@ import (
 
 type capturingChatProvider struct {
 	capturedReq *core.ChatRequest
+	chatResp    *core.ChatResponse
 	streamData  string
 	streamErr   error
 }
 
 func (p *capturingChatProvider) ChatCompletion(_ context.Context, _ *core.ChatRequest) (*core.ChatResponse, error) {
-	return nil, nil
+	return p.chatResp, nil
 }
 
 func (p *capturingChatProvider) StreamChatCompletion(_ context.Context, req *core.ChatRequest) (io.ReadCloser, error) {
@@ -1508,5 +1511,155 @@ func TestStreamResponsesViaChat_DoesNotInjectUsageWhenPolicyDisabled(t *testing.
 	}
 	if provider.capturedReq.StreamOptions != nil {
 		t.Fatalf("captured StreamOptions = %+v, want nil", provider.capturedReq.StreamOptions)
+	}
+}
+
+func TestResponsesViaChatRejectsEmptyChatResponse(t *testing.T) {
+	tests := []struct {
+		name        string
+		chatResp    *core.ChatResponse
+		wantMessage string
+	}{
+		{name: "nil response", wantMessage: "provider returned empty response"},
+		{
+			name:        "no choices",
+			chatResp:    &core.ChatResponse{ID: "chatcmpl-1"},
+			wantMessage: "provider returned no choices",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &capturingChatProvider{chatResp: tt.chatResp}
+
+			resp, err := ResponsesViaChat(context.Background(), provider, &core.ResponsesRequest{Model: "m", Input: "hi"}, "groq")
+
+			var gatewayErr *core.GatewayError
+			if !errors.As(err, &gatewayErr) || gatewayErr.HTTPStatusCode() != http.StatusBadGateway {
+				t.Fatalf("ResponsesViaChat() = %+v, %v; want 502 provider error", resp, err)
+			}
+			if gatewayErr.Message != tt.wantMessage || gatewayErr.Provider != "groq" {
+				t.Fatalf("error = %q from %q, want %q from groq", gatewayErr.Message, gatewayErr.Provider, tt.wantMessage)
+			}
+		})
+	}
+}
+
+func TestConvertResponsesRequestToChat_DropsResponsesOnlyTextMembers(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+	}{
+		{name: "map", input: []any{
+			map[string]any{
+				"type": "message",
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "output_text", "text": "OK", "annotations": []any{}, "logprobs": []any{},
+					"cache_control": map[string]any{"type": "ephemeral"},
+				}},
+			},
+		}},
+		{name: "typed", input: []core.ResponsesInputElement{{
+			Role: "assistant",
+			Content: []core.ContentPart{{
+				Type: "output_text",
+				Text: "OK",
+				ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
+					"annotations":   json.RawMessage(`[]`),
+					"logprobs":      json.RawMessage(`[]`),
+					"cache_control": json.RawMessage(`{"type":"ephemeral"}`),
+				}),
+			}},
+		}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chatReq, err := ConvertResponsesRequestToChat(&core.ResponsesRequest{Model: "test-model", Input: tt.input})
+			if err != nil {
+				t.Fatalf("ConvertResponsesRequestToChat() error = %v", err)
+			}
+			parts, ok := chatReq.Messages[0].Content.([]core.ContentPart)
+			if !ok {
+				t.Fatalf("Content type = %T, want []core.ContentPart", chatReq.Messages[0].Content)
+			}
+			extras := parts[0].ExtraFields
+			if extras.Lookup("annotations") != nil || extras.Lookup("logprobs") != nil {
+				t.Fatalf("Responses-only members forwarded to chat: %+v", parts[0])
+			}
+			if extras.Lookup("cache_control") == nil {
+				t.Fatal("cache_control dropped from the text part")
+			}
+		})
+	}
+}
+
+// Replayed Responses output items always carry an "id". Chat providers such as
+// Groq and Fireworks reject an unknown "id" member on a message, so it must not
+// survive the translation.
+func TestConvertResponsesRequestToChat_DropsReplayedItemIDs(t *testing.T) {
+	const replay = `[
+		{"type":"message","id":"msg_1","status":"completed","role":"assistant",
+		 "content":[{"type":"output_text","text":"Let me check.","annotations":[]}],
+		 "cache_control":{"type":"ephemeral"}},
+		{"type":"function_call","id":"fc_1","call_id":"call_1","name":"get_weather","arguments":"{}","status":"completed"},
+		{"type":"function_call_output","id":"fco_1","call_id":"call_1","output":"18C","status":"completed",
+		 "cache_control":{"type":"ephemeral"}}
+	]`
+
+	var typed []core.ResponsesInputElement
+	if err := json.Unmarshal([]byte(replay), &typed); err != nil {
+		t.Fatalf("unmarshal typed input: %v", err)
+	}
+	var maps []any
+	if err := json.Unmarshal([]byte(replay), &maps); err != nil {
+		t.Fatalf("unmarshal map input: %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		input any
+	}{
+		{name: "typed", input: typed},
+		{name: "map", input: maps},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chatReq, err := ConvertResponsesRequestToChat(&core.ResponsesRequest{Model: "test-model", Input: tt.input})
+			if err != nil {
+				t.Fatalf("ConvertResponsesRequestToChat() error = %v", err)
+			}
+			if len(chatReq.Messages) != 2 {
+				t.Fatalf("messages = %d, want 2: %+v", len(chatReq.Messages), chatReq.Messages)
+			}
+
+			assistant, tool := chatReq.Messages[0], chatReq.Messages[1]
+			if assistant.Role != "assistant" || tool.Role != "tool" {
+				t.Fatalf("roles = %q, %q; want assistant, tool", assistant.Role, tool.Role)
+			}
+			if assistant.ExtraFields.Lookup("id") != nil {
+				t.Errorf("assistant message kept id: %s", assistant.ExtraFields.Lookup("id"))
+			}
+			if tool.ExtraFields.Lookup("id") != nil {
+				t.Errorf("tool message kept id: %s", tool.ExtraFields.Lookup("id"))
+			}
+			if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ExtraFields.Lookup("id") != nil {
+				t.Errorf("tool call kept id: %+v", assistant.ToolCalls)
+			}
+
+			// Only the Responses-only members go; call ids and other unknown
+			// members still reach the provider.
+			if got := assistant.ToolCalls[0].ID; got != "call_1" {
+				t.Errorf("tool call id = %q, want call_1", got)
+			}
+			if got := tool.ToolCallID; got != "call_1" {
+				t.Errorf("tool_call_id = %q, want call_1", got)
+			}
+			if assistant.ExtraFields.Lookup("cache_control") == nil {
+				t.Error("cache_control dropped from the assistant message")
+			}
+			if tool.ExtraFields.Lookup("cache_control") == nil {
+				t.Error("cache_control dropped from the tool message")
+			}
+		})
 	}
 }

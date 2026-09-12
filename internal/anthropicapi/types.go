@@ -63,6 +63,10 @@ type ContentBlock struct {
 	// CacheControl preserves Anthropic prompt-cache breakpoints through the
 	// canonical chat representation when the request is routed back to Claude.
 	CacheControl json.RawMessage `json:"cache_control,omitempty" swaggertype:"object"`
+	// ExtraContent carries provider replay state on tool_use blocks (see
+	// core.ExtraContentField), so a tool-call history another provider produced
+	// through this API replays to it unchanged.
+	ExtraContent json.RawMessage `json:"extra_content,omitempty" swaggertype:"object"`
 }
 
 // Source describes an Anthropic image or document source: base64 inline
@@ -114,12 +118,23 @@ type MessagesResponse struct {
 
 // ResponseContentBlock is one element of an Anthropic response content array.
 type ResponseContentBlock struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text,omitempty"`
-	Thinking string          `json:"thinking,omitempty"`
-	ID       string          `json:"id,omitempty"`
-	Name     string          `json:"name,omitempty"`
-	Input    json.RawMessage `json:"input,omitempty" swaggertype:"object"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
+	// Signature authenticates a thinking block. Anthropic requires it back
+	// verbatim when the conversation continues, so clients must echo it. Every
+	// thinking block carries the member, as the Anthropic schema requires;
+	// reasoning from a provider that does not sign its output is rendered with
+	// an empty signature. Hence the pointer: only a thinking block has one.
+	Signature *string `json:"signature,omitempty"`
+	// Data is the opaque payload of a redacted_thinking block.
+	Data  string          `json:"data,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty" swaggertype:"object"`
+	// ExtraContent is provider replay state on a tool_use block; clients echo
+	// it back on the next turn (see core.ExtraContentField).
+	ExtraContent json.RawMessage `json:"extra_content,omitempty" swaggertype:"object"`
 }
 
 // Usage reports Anthropic-style token usage.

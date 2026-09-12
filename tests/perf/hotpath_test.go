@@ -479,11 +479,14 @@ func TestHotPathPerfGuard(t *testing.T) {
 			// response.completed now carries the full output array, and the
 			// terminal status became a variable (completed vs incomplete),
 			// boxing a few extra interface values — both once-per-stream costs
-			// independent of chunk count.
+			// independent of chunk count. Normalizing the stream to OpenAI's
+			// event lifecycle added four once-per-stream events
+			// (response.in_progress, content_part.added/done, output_text.done)
+			// with typed payloads; per-delta cost is unchanged.
 			name:      "openai_responses_stream_converter",
 			bench:     BenchmarkOpenAIResponsesStreamConverter,
-			maxAllocs: 107,   // baseline 105
-			maxBytes:  12288, // baseline ~11.3 KB (leaves headroom for pool cold-starts)
+			maxAllocs: 132,   // baseline 126
+			maxBytes:  20480, // baseline ~19.1 KB (leaves headroom for pool cold-starts)
 		},
 		{
 			name:      "shared_stream_audit_and_usage_observers",
@@ -498,7 +501,7 @@ func TestHotPathPerfGuard(t *testing.T) {
 			name:      "shared_stream_observers_default_config",
 			bench:     BenchmarkSharedStreamingObserversDefaultConfig,
 			maxAllocs: 62,   // baseline 60 (incl. request labels on both observers)
-			maxBytes:  3584, // baseline ~3.3 KB
+			maxBytes:  3712, // baseline ~3.5 KB (audit entry carries the guardrail outcome trail)
 		},
 	}
 

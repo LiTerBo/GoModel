@@ -37,6 +37,7 @@ For request and response details, see the dedicated guides:
 | `/v1/conversations/{id}/items/{item_id}` | DELETE | Delete a conversation item and return the conversation                                                |
 | `/v1/embeddings`                  | POST   | Text embeddings                                                                                              |
 | `/v1/models`                      | GET    | List available models                                                                                        |
+| `/v1/models/{model}`              | GET    | Retrieve one model by ID (`openai/gpt-4.1-mini`; slashes may be sent raw or percent-encoded)                  |
 | `/v1/audio/speech`                | POST   | Text-to-speech, returning binary audio                                                                       |
 | `/v1/audio/transcriptions`        | POST   | Speech-to-text from a multipart upload                                                                       |
 | `/v1/images/generations`          | POST   | Image generation from a text prompt (DALL·E, gpt-image-1, grok-2-image, Imagen, Gemini image models)                                     |
@@ -115,6 +116,38 @@ metered.
 | Endpoint    | Method | Description                                                                                                                              |
 | ----------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `/v1/usage` | GET    | Self-service usage, budget, and rate limit status for the caller's effective user path — see [Usage API](/advanced/usage-api) |
+| `/v1/auth/verify` | GET | Report whether the API key the request carries is valid (when `AUTH_VERIFY_ENABLED`) |
+
+### Key verification
+
+`GET /v1/auth/verify` lets a service in front of the gateway check an API key
+without holding a copy of the key list. It is **disabled by default**; enable it
+with `AUTH_VERIFY_ENABLED=true` (`server.auth_verify_enabled`). It is not an
+`/admin` route, so it keeps working when the admin API is disabled.
+
+```bash
+curl http://localhost:8080/v1/auth/verify \
+  -H "Authorization: Bearer sk_gom_..."
+```
+
+```json
+{ "valid": true, "method": "api_key", "key_id": "key_01H...", "user_path": "/acme/eng" }
+```
+
+An unknown, disabled, or expired key is rejected by the gateway's normal
+authentication with `401`, so a `200` means the key authenticates. `method`
+says which mechanism accepted it: `api_key` is a managed key stored in the
+database, `master_key` the bootstrap key from `GOMODEL_MASTER_KEY`. `key_id`
+and `user_path` are present only for managed keys bound to them.
+
+<Note>
+  Where the gateway admits unauthenticated callers — no authentication
+  configured at all, or a route an extension excluded from it — there is no key
+  to confirm, and the endpoint answers `200` with
+  `{"valid": false, "method": "none"}` rather than claiming the key is valid.
+  A status-code consumer such as Caddy's `forward_auth` treats that as allowed,
+  matching what the gateway itself does with those requests.
+</Note>
 
 ## Provider Passthrough
 

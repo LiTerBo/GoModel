@@ -61,7 +61,7 @@ func clearAllConfigEnvVars(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"CONFIG_STRICT",
-		"PORT", "BASE_PATH", "GOMODEL_MASTER_KEY", "BODY_SIZE_LIMIT", "SWAGGER_ENABLED", "PPROF_ENABLED", "ENABLE_PASSTHROUGH_ROUTES", "ALLOW_PASSTHROUGH_V1_ALIAS", "USER_PATH_HEADER", "ENABLED_PASSTHROUGH_PROVIDERS",
+		"PORT", "BASE_PATH", "GOMODEL_MASTER_KEY", "BODY_SIZE_LIMIT", "STREAM_STALL_TIMEOUT", "SWAGGER_ENABLED", "PPROF_ENABLED", "ENABLE_PASSTHROUGH_ROUTES", "ALLOW_PASSTHROUGH_V1_ALIAS", "USER_PATH_HEADER", "ENABLED_PASSTHROUGH_PROVIDERS",
 		"GOMODEL_CACHE_DIR", "CACHE_REFRESH_INTERVAL", "MODEL_LIST_URL", "GOMODEL_OFFLINE", "GOMODEL_VERSION_CHECK_ENABLED",
 		"REDIS_URL", "REDIS_KEY_MODELS", "REDIS_KEY_RESPONSES", "REDIS_TTL_MODELS", "REDIS_TTL_RESPONSES",
 		"RESPONSE_CACHE_SIMPLE_ENABLED",
@@ -75,7 +75,7 @@ func clearAllConfigEnvVars(t *testing.T) {
 		"STORAGE_TYPE", "SQLITE_PATH", "POSTGRES_URL", "POSTGRES_MAX_CONNS",
 		"MONGODB_URL", "MONGODB_DATABASE",
 		"METRICS_ENABLED", "METRICS_ENDPOINT",
-		"LOGGING_ENABLED", "LOGGING_LOG_BODIES", "LOGGING_LOG_REVISION_BODIES", "LOGGING_LOG_HEADERS",
+		"LOGGING_ENABLED", "LOGGING_LOG_BODIES", "LOGGING_LOG_REVISION_BODIES", "LOGGING_LOG_GUARDRAIL_STEPS", "LOGGING_LOG_HEADERS",
 		"LOGGING_LOG_AUDIO_BODIES", "LOGGING_LOG_IMAGE_BODIES", "LOGGING_LOG_IMAGE_BODIES_SCOPE",
 		"LOGGING_ONLY_MODEL_INTERACTIONS", "LOGGING_BUFFER_SIZE",
 		"LOGGING_FLUSH_INTERVAL", "LOGGING_RETENTION_DAYS",
@@ -86,7 +86,7 @@ func clearAllConfigEnvVars(t *testing.T) {
 		"RATE_LIMITS_ENABLED", "RATE_LIMITS_FLUSH_INTERVAL",
 		"DASHBOARD_LIVE_LOGS_ENABLED", "DASHBOARD_LIVE_LOGS_BUFFER_SIZE",
 		"DASHBOARD_LIVE_LOGS_REPLAY_LIMIT", "DASHBOARD_LIVE_LOGS_HEARTBEAT_SECONDS",
-		"GUARDRAILS_ENABLED", "ENABLE_GUARDRAILS_FOR_BATCH_PROCESSING",
+		"GUARDRAILS_ENABLED", "ENABLE_GUARDRAILS_FOR_BATCH_PROCESSING", "PLUGINS_ENABLED",
 		"FAILOVER_MODE", "FAILOVER_MANUAL_RULES_PATH", "FAILOVER_ENABLED", "FAILOVER_RULES_JSON", "FAILOVER_DISABLED_MODELS", "FAILOVER_DISABLED_MODELS_JSON",
 		"MODELS_ENABLED_BY_DEFAULT", "KEEP_ONLY_ALIASES_AT_MODELS_ENDPOINT", "UNQUALIFIED_MODEL_IDS_AT_MODELS_ENDPOINT", "CONFIGURED_PROVIDER_MODELS_MODE",
 		"HTTP_TIMEOUT", "HTTP_RESPONSE_HEADER_TIMEOUT",
@@ -137,6 +137,9 @@ func TestBuildDefaultConfig(t *testing.T) {
 	}
 	if cfg.Server.SwaggerEnabled {
 		t.Error("expected Server.SwaggerEnabled=false")
+	}
+	if cfg.Server.StreamStallTimeout != DefaultStreamStallTimeoutSeconds {
+		t.Errorf("expected Server.StreamStallTimeout=%d, got %d", DefaultStreamStallTimeoutSeconds, cfg.Server.StreamStallTimeout)
 	}
 	if !cfg.Server.EnablePassthroughRoutes {
 		t.Error("expected Server.EnablePassthroughRoutes=true")
@@ -269,12 +272,12 @@ func TestBuildDefaultConfig(t *testing.T) {
 	}
 
 	expectedRetry := DefaultRetryConfig()
-	if cfg.Resilience.Retry != expectedRetry {
+	if !reflect.DeepEqual(cfg.Resilience.Retry, expectedRetry) {
 		t.Errorf("expected Resilience.Retry=%+v, got %+v", expectedRetry, cfg.Resilience.Retry)
 	}
 
 	expectedCB := DefaultCircuitBreakerConfig()
-	if cfg.Resilience.CircuitBreaker != expectedCB {
+	if !reflect.DeepEqual(cfg.Resilience.CircuitBreaker, expectedCB) {
 		t.Errorf("expected Resilience.CircuitBreaker=%+v, got %+v", expectedCB, cfg.Resilience.CircuitBreaker)
 	}
 }
@@ -2290,4 +2293,67 @@ func TestIsLocalModelListSource(t *testing.T) {
 			t.Errorf("IsLocalModelListSource(%q) = %v, want %v", tt.in, got, tt.want)
 		}
 	}
+}
+
+func TestLoad_StreamStallTimeout(t *testing.T) {
+	clearAllConfigEnvVars(t)
+
+	withTempDir(t, func(_ string) {
+		result, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if got := result.Config.Server.StreamStallTimeout; got != DefaultStreamStallTimeoutSeconds {
+			t.Fatalf("Server.StreamStallTimeout = %d, want %d", got, DefaultStreamStallTimeoutSeconds)
+		}
+	})
+
+	withTempDir(t, func(dir string) {
+		yaml := `
+server:
+  stream_stall_timeout: 0
+`
+		if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yaml), 0644); err != nil {
+			t.Fatalf("Failed to write config.yaml: %v", err)
+		}
+
+		result, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if got := result.Config.Server.StreamStallTimeout; got != 0 {
+			t.Fatalf("Server.StreamStallTimeout = %d, want 0 (disabled by YAML)", got)
+		}
+	})
+
+	withTempDir(t, func(dir string) {
+		yaml := `
+server:
+  stream_stall_timeout: 120
+`
+		if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yaml), 0644); err != nil {
+			t.Fatalf("Failed to write config.yaml: %v", err)
+		}
+		t.Setenv("STREAM_STALL_TIMEOUT", "15")
+
+		result, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if got := result.Config.Server.StreamStallTimeout; got != 15 {
+			t.Fatalf("Server.StreamStallTimeout = %d, want 15 (env over YAML)", got)
+		}
+	})
+
+	withTempDir(t, func(_ string) {
+		t.Setenv("STREAM_STALL_TIMEOUT", "-1")
+
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected Load() to reject a negative STREAM_STALL_TIMEOUT")
+		}
+		if !strings.Contains(err.Error(), "server.stream_stall_timeout") {
+			t.Fatalf("Load() error = %v, want server.stream_stall_timeout", err)
+		}
+	})
 }

@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 // See issue #27 and the terminology record in #24.
 
 const en = JSON.parse(readFileSync(new URL("../messages/en.json", import.meta.url), "utf8"));
-const zh = JSON.parse(readFileSync(new URL("../messages/zh.json", import.meta.url), "utf8"));
+const zh = JSON.parse(readFileSync(new URL("../messages/zh-CN.json", import.meta.url), "utf8"));
 const source = (relative) => readFileSync(new URL(relative, import.meta.url), "utf8");
 
 test("模型页的可用性用词统一为 上架/下架（Serving/Paused）", () => {

@@ -21,6 +21,8 @@ import (
 	"github.com/enterpilot/gomodel/internal/guardrails"
 	"github.com/enterpilot/gomodel/internal/live"
 	"github.com/enterpilot/gomodel/internal/llmclient"
+	"github.com/enterpilot/gomodel/internal/plugins"
+	"github.com/enterpilot/gomodel/internal/plugins/builtin"
 	"github.com/enterpilot/gomodel/internal/providers"
 	"github.com/enterpilot/gomodel/internal/server"
 )
@@ -345,10 +347,10 @@ func TestDefaultWorkflowInput_IncludesConfiguredGuardrailsMissingFromLoadedCatal
 	if !input.Payload.Features.Guardrails {
 		t.Fatal("defaultWorkflowInput().Payload.Features.Guardrails = false, want true")
 	}
-	if len(input.Payload.Guardrails) != 1 {
-		t.Fatalf("len(defaultWorkflowInput().Payload.Guardrails) = %d, want 1", len(input.Payload.Guardrails))
+	if len(input.Payload.Steps) != 1 {
+		t.Fatalf("len(defaultWorkflowInput().Payload.Guardrails) = %d, want 1", len(input.Payload.Steps))
 	}
-	if got := input.Payload.Guardrails[0].Ref; got != "policy-system" {
+	if got := input.Payload.Steps[0].Ref; got != "policy-system" {
 		t.Fatalf("defaultWorkflowInput().Payload.Guardrails[0].Ref = %q, want policy-system", got)
 	}
 }
@@ -368,10 +370,10 @@ func TestDefaultWorkflowInput_TrimsConfiguredGuardrailRefs(t *testing.T) {
 	}
 
 	input := defaultWorkflowInput(cfg, []string{"policy-system"}, nil)
-	if len(input.Payload.Guardrails) != 1 {
-		t.Fatalf("len(defaultWorkflowInput().Payload.Guardrails) = %d, want 1", len(input.Payload.Guardrails))
+	if len(input.Payload.Steps) != 1 {
+		t.Fatalf("len(defaultWorkflowInput().Payload.Guardrails) = %d, want 1", len(input.Payload.Steps))
 	}
-	if got := input.Payload.Guardrails[0].Ref; got != "policy-system" {
+	if got := input.Payload.Steps[0].Ref; got != "policy-system" {
 		t.Fatalf("defaultWorkflowInput().Payload.Guardrails[0].Ref = %q, want policy-system", got)
 	}
 }
@@ -388,7 +390,7 @@ func TestConfigGuardrailDefinitions_DisabledIgnoresInvalidRules(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, testPluginCatalog(t))
 	if err != nil {
 		t.Fatalf("configGuardrailDefinitions() error = %v, want nil", err)
 	}
@@ -406,7 +408,7 @@ func TestConfigGuardrailDefinitions_EnabledRejectsUnknownType(t *testing.T) {
 				Type: "future_guardrail_type",
 			},
 		},
-	})
+	}, testPluginCatalog(t))
 	if err == nil {
 		t.Fatal("configGuardrailDefinitions() error = nil, want unsupported type error")
 	}
@@ -425,7 +427,7 @@ func TestConfigGuardrailDefinitions_TrimAndCanonicalizeRuleIdentity(t *testing.T
 				},
 			},
 		},
-	})
+	}, testPluginCatalog(t))
 	if err != nil {
 		t.Fatalf("configGuardrailDefinitions() error = %v", err)
 	}
@@ -449,7 +451,7 @@ func TestConfigGuardrailDefinitions_RejectsBlankNameOrType(t *testing.T) {
 				Type: "system_prompt",
 			},
 		},
-	})
+	}, testPluginCatalog(t))
 	if err == nil {
 		t.Fatal("configGuardrailDefinitions() error = nil, want name validation error")
 	}
@@ -462,7 +464,7 @@ func TestConfigGuardrailDefinitions_RejectsBlankNameOrType(t *testing.T) {
 				Type: "   ",
 			},
 		},
-	})
+	}, testPluginCatalog(t))
 	if err == nil {
 		t.Fatal("configGuardrailDefinitions() error = nil, want type validation error")
 	}
@@ -588,6 +590,10 @@ func TestDashboardRuntimeConfig_ExposesFeatureAvailabilityFlags(t *testing.T) {
 	}
 	if got := values.GuardrailsEnabled; got != "on" {
 		t.Fatalf("dashboardRuntimeConfig()[%q] = %q, want on", admin.DashboardConfigGuardrailsEnabled, got)
+	}
+	// Guardrails imply the plugin system, so the Plugins page shows too.
+	if got := values.PluginsEnabled; got != "on" {
+		t.Fatalf("dashboardRuntimeConfig()[%q] = %q, want on", admin.DashboardConfigPluginsEnabled, got)
 	}
 	if got := values.CacheEnabled; got != "on" {
 		t.Fatalf("dashboardRuntimeConfig()[%q] = %q, want on", admin.DashboardConfigCacheEnabled, got)
@@ -854,4 +860,32 @@ func (r *staticRewriter) Name() string { return r.name }
 
 func (r *staticRewriter) Rewrite(context.Context, ext.Input) (*ext.Result, error) {
 	return nil, nil
+}
+
+// testPluginCatalog returns a catalog of the built-in plugins.
+func testPluginCatalog(t *testing.T) *plugins.Catalog {
+	t.Helper()
+	catalog := plugins.NewCatalog()
+	for _, factory := range builtin.All() {
+		if err := catalog.Register(factory, plugins.SourceBuiltin); err != nil {
+			t.Fatalf("catalog.Register() error = %v", err)
+		}
+	}
+	return catalog
+}
+
+func TestDashboardRuntimeConfig_PluginsFlag(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cfg  *config.Config
+		want string
+	}{
+		{"default off", &config.Config{}, "off"},
+		{"plugins on", &config.Config{Plugins: config.PluginsConfig{Enabled: true}}, "on"},
+		{"guardrails imply plugins", &config.Config{Guardrails: config.GuardrailsConfig{Enabled: true}}, "on"},
+	} {
+		if got := dashboardRuntimeConfig(tt.cfg, false, false, false).PluginsEnabled; got != tt.want {
+			t.Errorf("%s: PLUGINS_ENABLED = %q, want %q", tt.name, got, tt.want)
+		}
+	}
 }

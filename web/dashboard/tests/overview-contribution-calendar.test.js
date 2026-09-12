@@ -128,7 +128,7 @@ test("buildCalendarGrid applies the same power scaling to the costs view", () =>
 });
 
 test("calendar summaries and tooltips follow the selected locale", () => {
-  overwriteGetLocale(() => "zh");
+  overwriteGetLocale(() => "zh-CN");
   try {
     assert.equal(
       calendarSummaryText([{ total_cost: 1234.5 }], "costs"),

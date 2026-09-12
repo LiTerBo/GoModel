@@ -33,6 +33,57 @@ test("the English source catalog contains valid flat semantic keys", () => {
   }
 });
 
+// The placeholders a message interpolates, whether it is a plain string or a
+// plural message whose variants live under nested "match" objects. A locale
+// may pick a different shape than en.json (Chinese has no plural), so the
+// union over every string leaf is what must match.
+function placeholders(message) {
+  const found = new Set();
+  const walk = (value) => {
+    if (typeof value === "string") {
+      for (const [, name] of value.matchAll(/\{(\w+)\}/g)) found.add(name);
+      return;
+    }
+    if (value && typeof value === "object") Object.values(value).forEach(walk);
+  };
+  walk(message);
+  return [...found].sort();
+}
+
+test("every locale catalog translates every English key", () => {
+  for (const locale of locales.filter((one) => one !== baseLocale)) {
+    const path = fileURLToPath(
+      new URL(`../messages/${locale}.json`, import.meta.url),
+    );
+    const { $schema: schema, ...messages } = JSON.parse(
+      readFileSync(path, "utf8"),
+    );
+    assert.equal(schema, "https://inlang.com/schema/inlang-message-format");
+
+    const missing = Object.keys(englishMessages).filter(
+      (key) => !(key in messages),
+    );
+    const extra = Object.keys(messages).filter(
+      (key) => !(key in englishMessages),
+    );
+    assert.deepEqual(missing, [], `${locale}.json is missing keys`);
+    assert.deepEqual(extra, [], `${locale}.json has keys en.json does not`);
+
+    for (const [key, message] of Object.entries(messages)) {
+      assert.ok(
+        (typeof message === "string" && message.trim() !== "") ||
+          (Array.isArray(message) && message.length > 0),
+        `${locale}.json: ${key} must contain a translation`,
+      );
+      assert.deepEqual(
+        placeholders(message),
+        placeholders(englishMessages[key]),
+        `${locale}.json: ${key} must use the same placeholders as en.json`,
+      );
+    }
+  }
+});
+
 test("Paraglide compiles interpolation and locale-aware plurals", () => {
   assert.equal(
     m.pagination_summary({ start: 1, end: 25, total: 80 }),
@@ -44,16 +95,72 @@ test("Paraglide compiles interpolation and locale-aware plurals", () => {
   assert.equal(
     m.pagination_summary(
       { start: 1, end: 25, total: 80 },
-      { locale: "zh" },
+      { locale: "zh-CN" },
     ),
     "显示第 1–25 项，共 80 项",
   );
-  assert.equal(m.rate_limits_title({}, { locale: "zh" }), "限流");
+  assert.equal(m.rate_limits_title({}, { locale: "zh-CN" }), "限流");
+});
+
+test("Paraglide compiles Simplified Chinese interpolation and locale-aware plurals", () => {
+  assert.equal(
+    m.pagination_summary(
+      { start: 1, end: 25, total: 80 },
+      { locale: "zh-CN" },
+    ),
+    "显示第 1–25 项，共 80 项",
+  );
+  assert.equal(m.date_picker_last_days({ count: 1 }, { locale: "zh-CN" }), "最近 1 天");
+  assert.equal(
+    m.date_picker_last_days({ count: 14 }, { locale: "zh-CN" }),
+    "最近 14 天",
+  );
+  assert.equal(m.date_picker_days({ count: 1 }, { locale: "zh-CN" }), "1 天");
+  assert.equal(m.date_picker_days({ count: 5 }, { locale: "zh-CN" }), "5 天");
+  assert.equal(m.audit_provider_attempts({ count: 1 }, { locale: "zh-CN" }), "1 次供应商尝试");
+  assert.equal(m.audit_provider_attempts({ count: 5 }, { locale: "zh-CN" }), "5 次供应商尝试");
+  assert.equal(
+    m.settings_pricing_summary(
+      { matched: 1, recalculated: 1 },
+      { locale: "zh-CN" },
+    ),
+    "已为 1 条用量记录中的 1 条重新计算价格。",
+  );
+  assert.equal(
+    m.settings_pricing_missing({ count: 2 }, { locale: "zh-CN" }),
+    "2 条用量记录仍缺少价格元数据。",
+  );
+  assert.equal(
+    m.settings_pricing_missing({ count: 5 }, { locale: "zh-CN" }),
+    "5 条用量记录仍缺少价格元数据。",
+  );
+  assert.equal(
+    m.settings_runtime_refresh_models({ count: 2 }, { locale: "zh-CN" }),
+    "2 个模型",
+  );
+  assert.equal(
+    m.settings_runtime_refresh_providers({ count: 5 }, { locale: "zh-CN" }),
+    "5 个供应商",
+  );
+  assert.equal(m.settings_pricing_confirmation({}, { locale: "zh-CN" }), "重新计算");
+  assert.equal(m.providers_keys_count({ count: 1 }, { locale: "zh-CN" }), "1 个密钥");
+  assert.equal(m.providers_keys_count({ count: 5 }, { locale: "zh-CN" }), "5 个密钥");
+  assert.equal(m.providers_models_count({ count: 5 }, { locale: "zh-CN" }), "5 个模型");
+  assert.equal(m.models_count({ count: 5 }, { locale: "zh-CN" }), "5 个模型");
+  assert.equal(m.models_alias_count({ count: 5 }, { locale: "zh-CN" }), "5 个别名");
+  assert.equal(m.overview_total_requests({}, { locale: "zh-CN" }), "总请求数");
+  assert.equal(
+    m.overview_live_token_throughput({}, { locale: "zh-CN" }),
+    "实时令牌吞吐量",
+  );
+  assert.equal(m.overview_provider_status({}, { locale: "zh-CN" }), "供应商状态");
+  assert.equal(m.overview_input_tokens({}, { locale: "zh-CN" }), "输入令牌");
+  assert.equal(m.rate_limits_title({}, { locale: "zh-CN" }), "限流");
 });
 
 test("the browser locale strategy persists overrides without changing routes", () => {
   assert.equal(baseLocale, "en");
-  assert.deepEqual(locales, ["en", "zh"]);
+  assert.deepEqual(locales, ["en", "zh-CN"]);
   assert.deepEqual(strategy, [
     "custom-dashboard",
     "preferredLanguage",

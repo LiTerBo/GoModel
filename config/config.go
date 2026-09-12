@@ -40,6 +40,9 @@ type Config struct {
 	Session       SessionConfig       `yaml:"session"`
 	MCP           MCPConfig           `yaml:"mcp"`
 
+	// Plugins controls which plugin shared objects (.so) are loaded at startup.
+	Plugins PluginsConfig `yaml:"plugins"`
+
 	// VersionCheck controls the daily update check against the public
 	// release manifest. See VersionCheckConfig for what it sends.
 	VersionCheck VersionCheckConfig `yaml:"version_check"`
@@ -111,6 +114,8 @@ func buildDefaultConfig() *Config {
 			EnablePassthroughRoutes: true,
 			AllowPassthroughV1Alias: true,
 			RealtimeEnabled:         true,
+			AuthVerifyEnabled:       false,
+			StreamStallTimeout:      DefaultStreamStallTimeoutSeconds,
 			EnabledPassthroughProviders: []string{
 				"openai",
 				"anthropic",
@@ -156,6 +161,7 @@ func buildDefaultConfig() *Config {
 			LogBodies:             true,
 			LogImageBodiesScope:   ImageBodyScopeAll,
 			LogRevisionBodies:     true,
+			LogGuardrailSteps:     true,
 			LogHeaders:            true,
 			BufferSize:            1000,
 			FlushInterval:         5,
@@ -278,6 +284,7 @@ func Load() (*LoadResult, error) {
 		return nil, err
 	}
 	applyBudgetDependencies(cfg)
+	applyPluginDependencies(cfg)
 	if err := applyBudgetEnv(cfg, strict); err != nil {
 		return nil, err
 	}
@@ -300,6 +307,11 @@ func Load() (*LoadResult, error) {
 		return nil, fmt.Errorf("models.configured_provider_models_mode must be one of: fallback, allowlist, merge")
 	}
 
+	cfg.Resilience.CircuitBreaker.Scope = NormalizeBreakerScope(cfg.Resilience.CircuitBreaker.Scope)
+	if err := validateResilienceConfig(cfg.Resilience, rawProviders); err != nil {
+		return nil, err
+	}
+
 	if err := loadFailoverConfig(&cfg.Failover); err != nil {
 		return nil, err
 	}
@@ -313,6 +325,9 @@ func Load() (*LoadResult, error) {
 		if err := ValidateBodySizeLimit(cfg.Server.BodySizeLimit); err != nil {
 			return nil, fmt.Errorf("invalid BODY_SIZE_LIMIT: %w", err)
 		}
+	}
+	if cfg.Server.StreamStallTimeout < 0 {
+		return nil, fmt.Errorf("server.stream_stall_timeout must be 0 or a positive number of seconds; got %d", cfg.Server.StreamStallTimeout)
 	}
 
 	if err := ValidateCacheConfig(&cfg.Cache); err != nil {

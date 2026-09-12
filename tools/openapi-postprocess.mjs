@@ -100,6 +100,7 @@ function ensureResponsesInputElementSchema() {
         description: 'Function call fields (type="function_call")',
         type: "string",
       },
+      extra_content: freeFormObjectSchema(),
       content: {
         description: "Can be string or []ContentPart",
         oneOf: [
@@ -165,6 +166,7 @@ function ensureAnthropicContentBlockSchema() {
     type: "object",
     properties: {
       content: anthropicContentSchema(),
+      extra_content: freeFormObjectSchema(),
       id: { type: "string" },
       input: freeFormObjectSchema(),
       is_error: { type: "boolean" },
@@ -172,10 +174,18 @@ function ensureAnthropicContentBlockSchema() {
       source: stringOrFreeFormObjectSchema(),
       text: { type: "string" },
       thinking: { type: "string" },
+      // thinking blocks are replayed with the signature Anthropic issued;
+      // redacted ones carry their opaque payload instead.
+      signature: { type: "string" },
+      data: { type: "string" },
       tool_use_id: { type: "string" },
       type: { type: "string" },
     },
   };
+}
+
+function applyResponsesReplayStateSchema() {
+  schema("core.ResponsesOutputItem").properties.extra_content = freeFormObjectSchema();
 }
 
 function applyAnthropicMessageSchemas() {
@@ -510,6 +520,7 @@ function applyBudgetKeySchemaConstraints() {
 spec.servers = parseServers(process.env.DOCS_API_SERVERS);
 ensureResponsesInputElementSchema();
 applyAnthropicMessageSchemas();
+applyResponsesReplayStateSchema();
 applyAnthropicMessagesStreamSchema();
 applyAudioTranscriptionTextSchema();
 applyImageEditMultiImageSchema();

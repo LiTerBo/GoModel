@@ -72,6 +72,7 @@ type Config struct {
 	MetricsEnabled                  bool                                   // Whether to expose Prometheus metrics endpoint
 	MetricsEndpoint                 string                                 // HTTP path for metrics endpoint (default: /metrics)
 	BodySizeLimit                   string                                 // Max request body size (e.g., "10M", "1024K")
+	StreamStallTimeout              time.Duration                          // Max time one response write on a model route waits for the client to read; 0 disables
 	PprofEnabled                    bool                                   // Whether to expose debug profiling routes at /debug/pprof/*
 	AuditLogger                     auditlog.LoggerInterface               // Optional: Audit logger for request/response logging
 	AuditReader                     auditlog.Reader                        // Optional: audit lookup used for dashboard interaction continuations
@@ -87,6 +88,7 @@ type Config struct {
 	FailoverResolver                RequestFailoverResolver                // Optional: translated-route failover resolver
 	FailoverPolicy                  *gateway.FailoverPolicy                // Optional: which errors trigger failover and how many targets to try; nil applies the defaults
 	TranslatedRequestPatcher        TranslatedRequestPatcher               // Optional: request patcher for translated routes after workflow resolution
+	PluginChainsResolver            PluginChainsResolver                   // Optional: response/stream phase plugin chains per request workflow
 	BatchRequestPreparer            BatchRequestPreparer                   // Optional: batch request preparer before native provider submission
 	ExposedModelLister              ExposedModelLister                     // Optional: additional public models to merge into GET /v1/models
 	KeepOnlyAliasesAtModelsEndpoint bool                                   // Whether GET /v1/models should hide concrete provider models
@@ -98,6 +100,7 @@ type Config struct {
 	LogOnlyModelInteractions        bool                                   // Only log AI model endpoints (default: true)
 	DisablePassthroughRoutes        bool                                   // Disable /p/{provider}/{endpoint} route registration
 	RealtimeEnabled                 bool                                   // Enable the realtime websocket routes (/v1/realtime, /v1/realtime/translations) and passthrough upgrades
+	AuthVerifyEnabled               bool                                   // Enable the credential check route (GET /v1/auth/verify); off by default
 	MCPEnabled                      bool                                   // Enable the MCP gateway routes /mcp and /mcp/{server}
 	MCPGateway                      *mcpgateway.Service                    // MCP gateway service (nil if disabled or not wired)
 	EnabledPassthroughProviders     []string                               // Provider types enabled on /p/{provider}/... passthrough routes
@@ -199,6 +202,7 @@ func New(provider core.RoutableProvider, cfg *Config) *Server {
 	}
 	if cfg != nil {
 		handler.batchRequestPreparer = cfg.BatchRequestPreparer
+		handler.pluginChains = cfg.PluginChainsResolver
 		handler.exposedModelLister = cfg.ExposedModelLister
 		handler.keepOnlyAliasesAtModelsEndpoint = cfg.KeepOnlyAliasesAtModelsEndpoint
 		handler.responseCache = cfg.ResponseCacheMiddleware
@@ -214,6 +218,7 @@ func New(provider core.RoutableProvider, cfg *Config) *Server {
 	handler.realtimeEnabled = cfg == nil || cfg.RealtimeEnabled
 	if cfg != nil {
 		handler.versionChecker = cfg.VersionChecker
+		handler.masterKey = cfg.MasterKey
 	}
 	if cfg != nil {
 		handler.mcpEnabled = cfg.MCPEnabled
@@ -330,7 +335,7 @@ func New(provider core.RoutableProvider, cfg *Config) *Server {
 	}
 	e.Use(middleware.BodyLimit(parseBodySizeLimitBytes(bodySizeLimit)))
 
-	e.Use(modelInteractionWriteDeadlineMiddleware())
+	e.Use(modelInteractionWriteDeadlineMiddleware(streamStallTimeout(cfg)))
 
 	// Ingress capture (before auth/audit/model validation so they can consume
 	// shared raw request state). Also assigns the per-request ID: the snapshot
@@ -430,7 +435,16 @@ func New(provider core.RoutableProvider, cfg *Config) *Server {
 		e.OPTIONS("/p/:provider/*", handler.ProviderPassthrough)
 	}
 	e.GET("/v1/models", handler.ListModels)
+	// Model IDs carry the provider prefix and may contain several slashes, so
+	// retrieve is a wildcard route; it only matches under /v1/models/ and
+	// therefore shadows no other /v1 route.
+	e.GET("/v1/models/*", handler.RetrieveModel)
 	e.GET("/v1/usage", handler.UsageStatus)
+	// Opt-in: the route answers questions about credentials, so it is only
+	// mounted where an operator asked for it.
+	if cfg != nil && cfg.AuthVerifyEnabled {
+		e.GET("/v1/auth/verify", handler.AuthVerify)
+	}
 	e.POST("/v1/chat/completions", handler.ChatCompletion)
 	e.POST("/v1/messages", handler.Messages)
 	e.POST("/v1/messages/count_tokens", handler.CountMessageTokens)
@@ -663,22 +677,59 @@ func configureGatewayHTTPServer(server *http.Server) error {
 	return nil
 }
 
-func modelInteractionWriteDeadlineMiddleware() echo.MiddlewareFunc {
+// modelInteractionWriteDeadlineMiddleware swaps the server-wide absolute
+// write deadline for a per-write stall deadline on model interaction routes:
+// a model response may run for minutes, but no single write to the client
+// should wait longer than stallTimeout for the client to read. A stallTimeout
+// of zero only clears the absolute deadline, leaving writes unbounded.
+func modelInteractionWriteDeadlineMiddleware(stallTimeout time.Duration) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			if !core.IsModelInteractionPath(c.Request().URL.Path) {
 				return next(c)
 			}
-			if err := http.NewResponseController(c.Response()).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			ctl := http.NewResponseController(c.Response())
+			if err := ctl.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
 				slog.Warn("failed to clear write deadline for model interaction",
 					"path", c.Request().URL.Path,
 					"request_id", requestIDFromContextOrHeader(c.Request()),
 					"error", err,
 				)
 			}
-			return next(c)
+			if stallTimeout <= 0 {
+				return next(c)
+			}
+			// Installed beneath echo's Response rather than around it, so the
+			// stall writer sees the connection's own flush errors and stays
+			// hidden from the wrappers later middleware adds on top.
+			res, err := echo.UnwrapResponse(c.Response())
+			if err != nil {
+				slog.Warn("stream stall timeout not applied: response writer cannot be unwrapped",
+					"path", c.Request().URL.Path,
+					"request_id", requestIDFromContextOrHeader(c.Request()),
+					"error", err,
+				)
+				return next(c)
+			}
+			res.ResponseWriter = newStallDeadlineWriter(res.ResponseWriter, stallTimeout)
+			err = next(c)
+			// The handler's last deadline would otherwise still apply to the
+			// trailing writes net/http makes after it returns (the chunked
+			// terminator), which may come much later than the last body write.
+			_ = ctl.SetWriteDeadline(time.Time{})
+			return err
 		}
 	}
+}
+
+// streamStallTimeout resolves the per-write client stall deadline for model
+// interaction routes. A nil config (tests constructing the server directly)
+// gets the documented default; an explicit zero disables it.
+func streamStallTimeout(cfg *Config) time.Duration {
+	if cfg == nil {
+		return time.Duration(config.DefaultStreamStallTimeoutSeconds) * time.Second
+	}
+	return cfg.StreamStallTimeout
 }
 
 func parseBodySizeLimitBytes(limit string) int64 {

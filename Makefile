@@ -1,4 +1,4 @@
-.PHONY: all build run demo clean tidy mod-check frontend frontend-check test test-race test-dashboard test-e2e test-integration test-contract test-all lint lint-fix fix fix-check record-api swagger docs-openapi install-tools perf-check perf-bench infra image seed-demo-data
+.PHONY: all build run demo clean tidy mod-check frontend frontend-check test test-race test-dashboard test-e2e test-integration test-contract test-all lint lint-fix fix fix-check record-api swagger docs-openapi helm-lint install-tools perf-check perf-bench infra image seed-demo-data build-plugins image-plugins example-plugins
 
 all: frontend build
 
@@ -47,8 +47,16 @@ run:
 	LOG_LEVEL="$(LOG_LEVEL)" SWAGGER_ENABLED="$(SWAGGER_ENABLED)" exec ./bin/gomodel
 
 # Seed the local SQLite database and start GoModel with a populated dashboard.
+# Guardrails (which imply plugins) are on so the seeded guardrail instances and
+# the workflows referencing them are live rather than capped off at runtime.
+# Audit retention is raised to the seeded window: the 30-day default would
+# delete two thirds of the demo audit log on the first startup sweep.
+# Exported so the seeder reads the same window as the retention settings: a
+# maintainer changing this default must not leave them out of step.
+export DEMO_DAYS ?= 90
 demo: seed-demo-data
-	$(MAKE) run GOMODEL_DEMO_MODE=true
+	$(MAKE) run GOMODEL_DEMO_MODE=true GUARDRAILS_ENABLED=true \
+		LOGGING_RETENTION_DAYS=$(DEMO_DAYS) USAGE_RETENTION_DAYS=$(DEMO_DAYS)
 
 # Clean build artifacts
 clean:
@@ -71,6 +79,29 @@ infra:
 # Docker Compose: full stack (GoModel + Prometheus; builds app image when needed)
 image: frontend
 	docker compose --profile app up -d
+
+# Shared-object plugin support (Go's plugin package) needs a cgo-enabled
+# binary; the default `build` and the release binaries are static. These
+# targets produce the cgo variants. Plugins must be built with the same Go
+# toolchain and flags as the binary that loads them: `gomodel plugin build`
+# copies the flags of the gomodel binary that runs it.
+build-plugins: frontend
+	CGO_ENABLED=1 go build -ldflags '$(LDFLAGS)' -o bin/gomodel-plugins ./cmd/gomodel
+
+# Docker image with plugin support (Dockerfile.plugins). Tag: gomodel:<version>-plugins.
+image-plugins: frontend
+	docker build -f Dockerfile.plugins -t gomodel:$(VERSION)-plugins -t gomodel:plugins \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) .
+
+# Build every example plugin under docs/example_plugins into ./plugins/<name>.so
+# using the toolchain of this checkout (matches `make build-plugins`).
+example-plugins:
+	@mkdir -p plugins
+	@for dir in docs/example_plugins/*/; do \
+		name=$$(basename $$dir); \
+		echo "building $$dir -> plugins/$$name.so"; \
+		go run ./cmd/gomodel plugin build -o plugins/$$name.so $$dir || exit 1; \
+	done
 
 # Seed rolling demo telemetry and dashboard configuration into SQLite.
 # Usage: SQLITE_PATH=data/gomodel.db make seed-demo-data
@@ -161,6 +192,17 @@ docs-openapi:
 # Run linter
 lint:
 	$(GOLANGCI_LINT) run --build-tags=$(BUILD_TAGS) ./cmd/... ./config/... ./ext/... ./internal/... ./run/... ./tests/...
+
+# Lint the Helm chart with every CI values profile and validate the rendered
+# manifests against the Kubernetes schemas (requires helm and kubeconform).
+helm-lint:
+	helm lint --strict helm
+	for values in helm/ci/*-values.yaml; do helm lint --strict helm -f "$$values"; done
+	rendered=$$(mktemp); trap 'rm -f "$$rendered"' EXIT; \
+	for values in helm/ci/*-values.yaml; do \
+		helm template gomodel helm -f "$$values" --namespace gomodel > "$$rendered" || exit 1; \
+		kubeconform -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' < "$$rendered" || exit 1; \
+	done
 
 # Run linter with auto-fix. Mirrors `lint`: same tags, same packages, so the
 # autofix pass cannot silently skip the tag-gated files under tests/.

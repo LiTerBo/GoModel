@@ -13,6 +13,9 @@ func (s *Service) Resolve(model, provider string) (Resolution, bool, error) {
 	return s.resolveRequested(context.Background(), core.NewRequestedModelSelector(model, provider), "", false, "")
 }
 
+// resolveRequested resolves one requested selector through the redirect
+// table. ctx is the request context when there is one: routing-strategy
+// plugins read request metadata from it and are bounded by it.
 func (s *Service) resolveRequested(ctx context.Context, requested core.RequestedModelSelector, userPath string, enforceUserPaths bool, sessionID string) (Resolution, bool, error) {
 	selector, err := requested.Normalize()
 	if err != nil {

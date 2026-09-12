@@ -3,10 +3,12 @@ package anthropicapi
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"io"
 
 	"github.com/goccy/go-json"
 
+	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/streaming"
 )
 
@@ -19,8 +21,12 @@ type chatChunk struct {
 		Delta struct {
 			Content          string              `json:"content"`
 			ReasoningContent string              `json:"reasoning_content"`
+			Reasoning        string              `json:"reasoning"`
 			StopSequence     string              `json:"stop_sequence"`
 			ToolCalls        []chatToolCallDelta `json:"tool_calls"`
+			// ExtraContent is provider replay state for the turn so far;
+			// Anthropic thinking signatures arrive here.
+			ExtraContent json.RawMessage `json:"extra_content"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -34,6 +40,8 @@ type chatToolCallDelta struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	} `json:"function"`
+	// ExtraContent is provider replay state on the first delta of a tool call.
+	ExtraContent json.RawMessage `json:"extra_content"`
 }
 
 type chatUsage struct {
@@ -84,14 +92,17 @@ type streamConverter struct {
 	buffer streaming.StreamBuffer
 	model  string
 
-	started       bool
-	blockOpen     bool
-	blockType     string
-	curIndex      int
-	nextIndex     int
-	toolBlock     map[int]int
-	stopReason    string
-	stopSequence  string
+	started      bool
+	blockOpen    bool
+	blockType    string
+	curIndex     int
+	nextIndex    int
+	toolBlock    map[int]int
+	stopReason   string
+	stopSequence string
+	// thinkingSeen counts the thinking blocks already rendered from the
+	// cumulative replay state, so a later chunk repeating them adds nothing.
+	thinkingSeen  int
 	inputEstimate int
 	usage         chatUsage
 	finalized     bool
@@ -169,14 +180,17 @@ func (sc *streamConverter) handleChunk(chunk *chatChunk) {
 		sc.usage = *chunk.Usage
 	}
 	for _, choice := range chunk.Choices {
-		if choice.Delta.ReasoningContent != "" {
+		// "reasoning_content" wins over "reasoning" (Groq, OpenRouter), the
+		// same precedence the streaming codec applies.
+		if thinking := cmp.Or(choice.Delta.ReasoningContent, choice.Delta.Reasoning); thinking != "" {
 			sc.ensureBlock("thinking")
 			sc.emit("content_block_delta", map[string]any{
 				"type":  "content_block_delta",
 				"index": sc.curIndex,
-				"delta": map[string]any{"type": "thinking_delta", "thinking": choice.Delta.ReasoningContent},
+				"delta": map[string]any{"type": "thinking_delta", "thinking": thinking},
 			})
 		}
+		sc.handleThinkingReplay(choice.Delta.ExtraContent)
 		if choice.Delta.Content != "" {
 			sc.ensureBlock("text")
 			sc.emit("content_block_delta", map[string]any{
@@ -197,16 +211,65 @@ func (sc *streamConverter) handleChunk(chunk *chatChunk) {
 	}
 }
 
+// handleThinkingReplay renders the Anthropic thinking blocks a chunk carries
+// as replay state. A signed thinking block is closed by writing its
+// signature_delta into the block already open from the reasoning deltas; a
+// redacted block has no deltas at all and is emitted whole. The gateway's own
+// extra_content member never reaches the client here: the Anthropic dialect
+// has native fields for both.
+func (sc *streamConverter) handleThinkingReplay(raw json.RawMessage) {
+	vendor := core.KeepExtraContentVendor(raw, core.ExtraContentVendorAnthropic)
+	if len(vendor) == 0 {
+		return
+	}
+	var extra struct {
+		Anthropic struct {
+			ThinkingBlocks []ResponseContentBlock `json:"thinking_blocks"`
+		} `json:"anthropic"`
+	}
+	if err := json.Unmarshal(vendor, &extra); err != nil {
+		return
+	}
+	blocks := extra.Anthropic.ThinkingBlocks
+	if len(blocks) <= sc.thinkingSeen {
+		return
+	}
+	for _, block := range blocks[sc.thinkingSeen:] {
+		switch block.Type {
+		case "redacted_thinking":
+			sc.closeBlock()
+			sc.openBlock("redacted_thinking", map[string]any{"type": "redacted_thinking", "data": block.Data})
+			sc.closeBlock()
+		default:
+			if block.Signature == nil || *block.Signature == "" {
+				continue
+			}
+			sc.ensureBlock("thinking")
+			sc.emit("content_block_delta", map[string]any{
+				"type":  "content_block_delta",
+				"index": sc.curIndex,
+				"delta": map[string]any{"type": "signature_delta", "signature": *block.Signature},
+			})
+			sc.closeBlock()
+		}
+	}
+	sc.thinkingSeen = len(blocks)
+}
+
 func (sc *streamConverter) handleToolCall(call chatToolCallDelta) {
 	index, seen := sc.toolBlock[call.Index]
 	if !seen {
 		sc.closeBlock()
-		sc.openBlock("tool_use", map[string]any{
+		block := map[string]any{
 			"type":  "tool_use",
 			"id":    call.ID,
 			"name":  call.Function.Name,
 			"input": map[string]any{},
-		})
+		}
+		if extra := bytes.TrimSpace(call.ExtraContent); len(extra) > 0 && !core.IsJSONNull(extra) {
+			block[core.ExtraContentField] = json.RawMessage(extra)
+		}
+		sc.openBlock("tool_use", block)
 		sc.toolBlock[call.Index] = sc.curIndex
 		index = sc.curIndex
 	}
@@ -230,6 +293,10 @@ func (sc *streamConverter) ensureBlock(blockType string) {
 	contentBlock := map[string]any{"type": blockType}
 	if blockType == "thinking" {
 		contentBlock["thinking"] = ""
+		// Anthropic opens a thinking block with an empty signature and fills it
+		// with a signature_delta; a provider that never signs its reasoning
+		// simply leaves it empty, so the block still matches the schema.
+		contentBlock["signature"] = ""
 	} else {
 		contentBlock["text"] = ""
 	}

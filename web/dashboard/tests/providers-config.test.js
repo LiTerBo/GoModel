@@ -288,7 +288,7 @@ test("providerCredentialFieldMeta humanizes a field the dashboard has no copy fo
 });
 
 test("providerCredentialFieldMeta resolves translations on access", () => {
-  overwriteGetLocale(() => "zh");
+  overwriteGetLocale(() => "zh-CN");
   try {
     assert.equal(providerCredentialFieldMeta("base_url").label, "基础 URL");
   } finally {

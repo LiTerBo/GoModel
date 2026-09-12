@@ -404,6 +404,61 @@ func TestChatCompletion(t *testing.T) {
 	}
 }
 
+func TestResponsesDropsMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata map[string]string
+		stream   bool
+	}{
+		{name: "non-streaming drops metadata", metadata: map[string]string{"team": "alpha"}},
+		{name: "streaming drops metadata", metadata: map[string]string{"team": "alpha"}, stream: true},
+		{name: "no metadata is a no-op", metadata: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Errorf("read body: %v", err)
+					return
+				}
+				if err := json.Unmarshal(raw, &body); err != nil {
+					t.Errorf("unmarshal body: %v", err)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","status":"completed"}`))
+			}))
+			defer server.Close()
+
+			provider := NewWithHTTPClient("test-api-key", nil, llmclient.Hooks{})
+			provider.SetBaseURL(server.URL)
+
+			req := &core.ResponsesRequest{Model: "grok-4.3", Metadata: tt.metadata}
+			var err error
+			if tt.stream {
+				var stream io.ReadCloser
+				stream, err = provider.StreamResponses(context.Background(), req)
+				if stream != nil {
+					_ = stream.Close()
+				}
+			} else {
+				_, err = provider.Responses(context.Background(), req)
+			}
+			if err != nil {
+				t.Fatalf("responses: %v", err)
+			}
+			if _, ok := body["metadata"]; ok {
+				t.Errorf("outbound body carries metadata: %v", body["metadata"])
+			}
+			if len(tt.metadata) > 0 && req.Metadata == nil {
+				t.Error("caller request was mutated; metadata must survive for the client echo")
+			}
+		})
+	}
+}
+
 func TestStreamChatCompletion(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -1021,5 +1076,98 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 		if got := normalizeReasoningEffort(tt.model, tt.effort); got != tt.want {
 			t.Errorf("normalizeReasoningEffort(%q, %q) = %q, want %q", tt.model, tt.effort, got, tt.want)
 		}
+	}
+}
+
+func TestChatCompletion_DropsReasoningEffortForModelsThatRejectIt(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      string
+		effort     string
+		wantEffort string // "" means the field must be absent
+	}{
+		{name: "non-reasoning variant", model: "grok-4.20-0309-non-reasoning", effort: "medium"},
+		{name: "reasoning variant keeps it", model: "grok-4.20-0309-reasoning", effort: "medium", wantEffort: "medium"},
+		{name: "grok-build has a fixed effort", model: "grok-build-0.1", effort: "high"},
+		{name: "grok-3 rejects it", model: "grok-3", effort: "high"},
+		{name: "grok-3-mini takes it", model: "grok-3-mini", effort: "high", wantEffort: "high"},
+		{name: "grok-2 rejects it", model: "grok-2-1212", effort: "low"},
+		{name: "namespaced id", model: "xai/grok-4.20-0309-non-reasoning", effort: "low"},
+		{name: "unknown models keep it", model: "grok-99-new", effort: "low", wantEffort: "low"},
+		{name: "grok-4.5 keeps it", model: "grok-4.5", effort: "low", wantEffort: "low"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBody map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+					http.Error(w, "decode error", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"c1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`))
+			}))
+			defer server.Close()
+
+			provider := NewWithHTTPClient("test-api-key", nil, llmclient.Hooks{})
+			provider.SetBaseURL(server.URL)
+
+			_, err := provider.ChatCompletion(context.Background(), &core.ChatRequest{
+				Model:     tt.model,
+				Messages:  []core.Message{{Role: "user", Content: "hi"}},
+				Reasoning: &core.Reasoning{Effort: tt.effort},
+			})
+			if err != nil {
+				t.Fatalf("ChatCompletion() error = %v", err)
+			}
+			if _, ok := gotBody["reasoning"]; ok {
+				t.Errorf("request body includes nested reasoning: %#v", gotBody["reasoning"])
+			}
+			got, ok := gotBody["reasoning_effort"]
+			if tt.wantEffort == "" {
+				if ok {
+					t.Errorf("reasoning_effort = %#v, want absent", got)
+				}
+				return
+			}
+			if got != tt.wantEffort {
+				t.Errorf("reasoning_effort = %#v, want %q", got, tt.wantEffort)
+			}
+		})
+	}
+}
+
+func TestChatCompletion_DropsEmptyReasoningObject(t *testing.T) {
+	for _, effort := range []string{"", " \t "} {
+		t.Run("effort="+effort, func(t *testing.T) {
+			var gotBody map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+					http.Error(w, "decode error", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"c1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`))
+			}))
+			defer server.Close()
+
+			provider := NewWithHTTPClient("test-api-key", nil, llmclient.Hooks{})
+			provider.SetBaseURL(server.URL)
+
+			_, err := provider.ChatCompletion(context.Background(), &core.ChatRequest{
+				Model:     "grok-4.5",
+				Messages:  []core.Message{{Role: "user", Content: "hi"}},
+				Reasoning: &core.Reasoning{Effort: effort},
+			})
+			if err != nil {
+				t.Fatalf("ChatCompletion() error = %v", err)
+			}
+			if _, ok := gotBody["reasoning"]; ok {
+				t.Errorf("reasoning should be absent, got %#v", gotBody["reasoning"])
+			}
+			if _, ok := gotBody["reasoning_effort"]; ok {
+				t.Errorf("reasoning_effort should be absent, got %#v", gotBody["reasoning_effort"])
+			}
+		})
 	}
 }

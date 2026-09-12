@@ -2064,9 +2064,11 @@ func TestConvertToAnthropicRequest_ToolMessageIsError(t *testing.T) {
 		Model: "claude-sonnet-4-5-20250929",
 		Messages: []core.Message{
 			{Role: "tool", ToolCallID: "call_1", Content: "boom", ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
-				core.ToolResultIsErrorField: json.RawMessage("true"),
+				core.ExtraContentField: json.RawMessage(`{"anthropic":{"is_error":true}}`),
 			})},
-			{Role: "tool", ToolCallID: "call_2", Content: "fine"},
+			{Role: "tool", ToolCallID: "call_2", Content: "fine", ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
+				core.ExtraContentField: json.RawMessage(`{"google":{"is_error":true}}`),
+			})},
 		},
 	})
 	if err != nil {
@@ -2092,7 +2094,7 @@ func TestConvertToAnthropicRequest_ReplaysThinkingBlocks(t *testing.T) {
 				Content:   "calling",
 				ToolCalls: []core.ToolCall{{ID: "tu_1", Type: "function", Function: core.FunctionCall{Name: "lookup", Arguments: "{}"}}},
 				ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
-					core.ThinkingBlocksField: json.RawMessage(`[{"type":"thinking","thinking":"","signature":"sig1"},{"type":"redacted_thinking","data":"opaque"}]`),
+					core.ExtraContentField: json.RawMessage(`{"anthropic":{"thinking_blocks":[{"type":"thinking","thinking":"","signature":"sig1"},{"type":"redacted_thinking","data":"opaque"}]}}`),
 				}),
 			},
 			{Role: "tool", ToolCallID: "tu_1", Content: "result"},
@@ -2120,6 +2122,88 @@ func TestConvertToAnthropicRequest_ReplaysThinkingBlocks(t *testing.T) {
 	}
 	if string(encoded) != `{"type":"thinking","thinking":"","signature":"sig1"}` {
 		t.Errorf("encoded thinking block = %s, want empty thinking text kept", encoded)
+	}
+}
+
+// Reasoning another provider produced reaches Anthropic as a thinking block
+// with no signature of Anthropic's own. Anthropic rejects the whole request for
+// it ("signature: Field required", or "Invalid `signature`" for anything the
+// gateway could mint), so the block is dropped and the rest of the turn stands.
+func TestConvertToAnthropicRequest_DropsUnsignedThinkingBlocks(t *testing.T) {
+	tests := []struct {
+		name   string
+		blocks string
+		want   []string
+	}{
+		{
+			name:   "missing signature",
+			blocks: `[{"type":"thinking","thinking":"foreign"}]`,
+			want:   []string{"text"},
+		},
+		{
+			name:   "empty signature",
+			blocks: `[{"type":"thinking","thinking":"foreign","signature":""}]`,
+			want:   []string{"text"},
+		},
+		{
+			name:   "signed blocks are kept",
+			blocks: `[{"type":"thinking","thinking":"own","signature":"sig1"}]`,
+			want:   []string{"thinking", "text"},
+		},
+		{
+			name:   "redacted blocks carry data rather than a signature",
+			blocks: `[{"type":"redacted_thinking","data":"opaque"}]`,
+			want:   []string{"redacted_thinking", "text"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := convertToAnthropicRequest(&core.ChatRequest{
+				Model: "claude-sonnet-4-5-20250929",
+				Messages: []core.Message{
+					{Role: "user", Content: "hi"},
+					{
+						Role:    "assistant",
+						Content: "391",
+						ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
+							core.ExtraContentField: json.RawMessage(`{"anthropic":{"thinking_blocks":` + tt.blocks + `}}`),
+						}),
+					},
+					{Role: "user", Content: "and now?"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("convertToAnthropicRequest: %v", err)
+			}
+			var got []string
+			switch content := req.Messages[1].Content.(type) {
+			case []anthropicContentBlock:
+				for _, block := range content {
+					got = append(got, block.Type)
+				}
+			case string:
+				got = []string{"text"}
+			}
+			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("assistant blocks = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConvertToAnthropicRequest_RejectsMalformedAnthropicExtraContent(t *testing.T) {
+	_, err := convertToAnthropicRequest(&core.ChatRequest{
+		Model: "claude-sonnet-4-5-20250929",
+		Messages: []core.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "x", ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{
+				core.ExtraContentField: json.RawMessage(`{"anthropic":{"thinking_blocks":"nope"}}`),
+			})},
+		},
+	})
+	if gatewayErr, ok := err.(*core.GatewayError); !ok || gatewayErr.Type != core.ErrorTypeInvalidRequest {
+		t.Fatalf("error = %v, want invalid_request_error", err)
 	}
 }
 
@@ -3821,8 +3905,10 @@ func TestConvertResponsesRequestToAnthropic(t *testing.T) {
 				if req.Temperature == nil || *req.Temperature != 0.7 {
 					t.Errorf("Temperature = %v, want 0.7", req.Temperature)
 				}
-				if req.TopP == nil || *req.TopP != 0.2 {
-					t.Errorf("TopP = %v, want 0.2", req.TopP)
+				// Anthropic rejects both sampling parameters at once, so
+				// top_p is dropped in favour of temperature.
+				if req.TopP != nil {
+					t.Errorf("TopP = %v, want nil", *req.TopP)
 				}
 				if req.MaxTokens != 1024 {
 					t.Errorf("MaxTokens = %d, want 1024", req.MaxTokens)
@@ -4355,23 +4441,37 @@ func TestConvertAnthropicResponseToResponses_WithThinkingBlocks(t *testing.T) {
 		name         string
 		content      []anthropicContent
 		expectedText string
+		wantReplay   string
 	}{
 		{
 			name: "thinking then text",
 			content: []anthropicContent{
-				{Type: "thinking", Text: "The user is asking about geography..."},
+				{Type: "thinking", Thinking: "The user is asking about geography...", Signature: "sig-1"},
 				{Type: "text", Text: "The capital of France is Paris."},
 			},
 			expectedText: "The capital of France is Paris.",
+			wantReplay:   `{"anthropic":{"thinking_blocks":[{"type":"thinking","thinking":"The user is asking about geography...","signature":"sig-1"}]}}`,
 		},
 		{
 			name: "preamble text then thinking then answer",
 			content: []anthropicContent{
 				{Type: "text", Text: "\n\n"},
-				{Type: "thinking", Text: ""},
+				{Type: "thinking", Thinking: "", Signature: "sig-2"},
 				{Type: "text", Text: "The capital of France is Paris."},
 			},
 			expectedText: "The capital of France is Paris.",
+			// A thinking block whose text the model omitted still has to be
+			// replayed: the signature covers the block, not the text.
+			wantReplay: `{"anthropic":{"thinking_blocks":[{"type":"thinking","thinking":"","signature":"sig-2"}]}}`,
+		},
+		{
+			name: "redacted thinking",
+			content: []anthropicContent{
+				{Type: "redacted_thinking", Data: "opaque"},
+				{Type: "text", Text: "The capital of France is Paris."},
+			},
+			expectedText: "The capital of France is Paris.",
+			wantReplay:   `{"anthropic":{"thinking_blocks":[{"type":"redacted_thinking","data":"opaque"}]}}`,
 		},
 	}
 
@@ -4389,14 +4489,24 @@ func TestConvertAnthropicResponseToResponses_WithThinkingBlocks(t *testing.T) {
 
 			result := convertAnthropicResponseToResponses(resp, "claude-opus-4-6")
 
-			if len(result.Output) != 1 {
-				t.Fatalf("len(Output) = %d, want 1", len(result.Output))
+			// A thinking block always produces a leading reasoning item: it
+			// carries the signature the next turn has to replay, even when the
+			// model left the thinking text empty.
+			if len(result.Output) != 2 {
+				t.Fatalf("len(Output) = %d, want a reasoning item and a message", len(result.Output))
 			}
-			if len(result.Output[0].Content) == 0 {
-				t.Fatalf("len(Output[0].Content) = 0, want at least 1")
+			reasoning, message := result.Output[0], result.Output[1]
+			if reasoning.Type != "reasoning" {
+				t.Fatalf("Output[0].Type = %q, want reasoning", reasoning.Type)
 			}
-			if result.Output[0].Content[0].Text != tt.expectedText {
-				t.Errorf("expected %q, got %q", tt.expectedText, result.Output[0].Content[0].Text)
+			if raw := reasoning.ExtraFields.Lookup(core.ExtraContentField); string(raw) != tt.wantReplay {
+				t.Errorf("reasoning replay state = %s, want %s", raw, tt.wantReplay)
+			}
+			if len(message.Content) == 0 {
+				t.Fatalf("len(Output[1].Content) = 0, want at least 1")
+			}
+			if message.Content[0].Text != tt.expectedText {
+				t.Errorf("expected %q, got %q", tt.expectedText, message.Content[0].Text)
 			}
 			if result.Usage.OutputTokens != 50 {
 				t.Errorf("OutputTokens = %d, want 50", result.Usage.OutputTokens)
@@ -6116,6 +6226,70 @@ func TestRejectsSamplingParameters(t *testing.T) {
 	}
 }
 
+func TestConvertToAnthropicRequestDropsConflictingSamplingParameter(t *testing.T) {
+	ptr := func(v float64) *float64 { return &v }
+	tests := []struct {
+		name        string
+		model       string
+		temperature *float64
+		topP        *float64
+		wantTemp    *float64
+		wantTopP    *float64
+	}{
+		{
+			name:        "both sent keeps temperature only",
+			model:       "claude-haiku-4-5-20251001",
+			temperature: ptr(0.5),
+			topP:        ptr(0.9),
+			wantTemp:    ptr(0.5),
+		},
+		{
+			name:        "temperature alone is forwarded",
+			model:       "claude-haiku-4-5-20251001",
+			temperature: ptr(0.5),
+			wantTemp:    ptr(0.5),
+		},
+		{
+			name:     "top_p alone is forwarded",
+			model:    "claude-haiku-4-5-20251001",
+			topP:     ptr(0.9),
+			wantTopP: ptr(0.9),
+		},
+		{
+			name:        "models rejecting sampling lose both",
+			model:       "claude-opus-4-8",
+			temperature: ptr(0.5),
+			topP:        ptr(0.9),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := convertToAnthropicRequest(&core.ChatRequest{
+				Model:       tt.model,
+				Messages:    []core.Message{{Role: "user", Content: "hi"}},
+				Temperature: tt.temperature,
+				TopP:        tt.topP,
+			})
+			if err != nil {
+				t.Fatalf("convertToAnthropicRequest: %v", err)
+			}
+			if !equalFloatPtr(out.Temperature, tt.wantTemp) {
+				t.Errorf("temperature = %v, want %v", out.Temperature, tt.wantTemp)
+			}
+			if !equalFloatPtr(out.TopP, tt.wantTopP) {
+				t.Errorf("top_p = %v, want %v", out.TopP, tt.wantTopP)
+			}
+		})
+	}
+}
+
+func equalFloatPtr(got, want *float64) bool {
+	if got == nil || want == nil {
+		return got == nil && want == nil
+	}
+	return *got == *want
+}
+
 func TestRejectsForcedToolChoice(t *testing.T) {
 	for model, want := range map[string]bool{
 		"claude-fable-5-1":          true,
@@ -6143,7 +6317,9 @@ func TestConvertToAnthropicRequest_DropsSamplingForModelsThatRejectIt(t *testing
 	}{
 		{name: "fable 5.1 drops temperature and top_p", model: "claude-fable-5-1"},
 		{name: "opus 4.7 drops temperature and top_p", model: "claude-opus-4-7"},
-		{name: "sonnet 4.6 keeps sampling parameters", model: "claude-sonnet-4-6", wantKept: true},
+		// Models that still accept sampling parameters keep temperature;
+		// top_p goes because Anthropic refuses the two together.
+		{name: "sonnet 4.6 keeps temperature", model: "claude-sonnet-4-6", wantKept: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -6157,8 +6333,8 @@ func TestConvertToAnthropicRequest_DropsSamplingForModelsThatRejectIt(t *testing
 				t.Fatalf("convertToAnthropicRequest() error = %v", err)
 			}
 			if tt.wantKept {
-				if out.Temperature == nil || *out.Temperature != temp || out.TopP == nil || *out.TopP != topP {
-					t.Fatalf("Temperature = %v, TopP = %v, want %v and %v", out.Temperature, out.TopP, temp, topP)
+				if out.Temperature == nil || *out.Temperature != temp || out.TopP != nil {
+					t.Fatalf("Temperature = %v, TopP = %v, want %v and nil", out.Temperature, out.TopP, temp)
 				}
 				return
 			}
@@ -6300,5 +6476,723 @@ func assertAdaptiveHighEffort(t *testing.T, out *anthropicRequest) {
 	}
 	if out.OutputConfig == nil || out.OutputConfig.Effort != "high" {
 		t.Fatalf("OutputConfig = %+v, want effort high", out.OutputConfig)
+	}
+}
+
+// chatStreamDeltas converts an Anthropic SSE stream and returns the delta
+// object of every emitted chat chunk.
+func chatStreamDeltas(t *testing.T, anthropicSSE string) []map[string]any {
+	t.Helper()
+	conv := newStreamConverter(io.NopCloser(strings.NewReader(anthropicSSE)), "claude-sonnet-4-5")
+	defer conv.Close() //nolint:errcheck
+
+	out, err := io.ReadAll(conv)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	deltas := []map[string]any{}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		data, ok := strings.CutPrefix(strings.TrimSpace(line), "data: ")
+		if !ok || data == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta map[string]any `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			t.Fatalf("unmarshal chunk %q: %v", data, err)
+		}
+		for _, choice := range chunk.Choices {
+			deltas = append(deltas, choice.Delta)
+		}
+	}
+	return deltas
+}
+
+// lastExtraContent returns the last extra_content value seen on a delta, which
+// is the authoritative cumulative value for a client that keeps only the most
+// recent one. Decoding through map[string]any sorts the members, so the
+// expected values below are in key order rather than wire order.
+func lastExtraContent(deltas []map[string]any) string {
+	for _, delta := range slices.Backward(deltas) {
+		if extra, ok := delta[core.ExtraContentField]; ok {
+			encoded, _ := json.Marshal(extra)
+			return string(encoded)
+		}
+	}
+	return ""
+}
+
+// A streamed thinking block carries its signature in a signature_delta that
+// arrives after the thinking text. Dropping it leaves the client with a
+// thinking block Anthropic will refuse on the next turn, so the converter must
+// surface it as replay state.
+func TestStreamChatCompletion_ThinkingSignatureSurfaced(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_sig","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"think."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Done."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+	deltas := chatStreamDeltas(t, sse)
+	want := `{"anthropic":{"thinking_blocks":[{"signature":"sig-1","thinking":"Let me think.","type":"thinking"}]}}`
+	if got := lastExtraContent(deltas); got != want {
+		t.Fatalf("extra_content = %s, want %s", got, want)
+	}
+
+	// The signature must not arrive after the text has been streamed: a client
+	// closing the thinking block on the first text delta would drop it.
+	extraAt, textAt := -1, -1
+	for i, delta := range deltas {
+		if _, ok := delta[core.ExtraContentField]; ok && extraAt < 0 {
+			extraAt = i
+		}
+		if _, ok := delta["content"]; ok && textAt < 0 {
+			textAt = i
+		}
+	}
+	if extraAt < 0 || textAt < 0 || extraAt > textAt {
+		t.Errorf("extra_content at %d, first content at %d; want the thinking block completed first", extraAt, textAt)
+	}
+}
+
+// A redacted thinking block arrives whole on content_block_start and has no
+// readable text, so nothing but extra_content can carry it.
+func TestStreamChatCompletion_RedactedThinkingSurfaced(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_red","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+	want := `{"anthropic":{"thinking_blocks":[{"data":"opaque","type":"redacted_thinking"}]}}`
+	if got := lastExtraContent(chatStreamDeltas(t, sse)); got != want {
+		t.Fatalf("extra_content = %s, want %s", got, want)
+	}
+}
+
+// A stream without thinking must stay byte-identical to what it was before:
+// no empty extra_content member on any delta.
+func TestStreamChatCompletion_NoThinkingNoExtraContent(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_plain","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":4,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+	if got := lastExtraContent(chatStreamDeltas(t, sse)); got != "" {
+		t.Fatalf("extra_content = %s, want none for a stream with no thinking", got)
+	}
+}
+
+// responsesStreamEvents converts an Anthropic SSE stream to the Responses
+// dialect and returns the decoded events.
+func responsesStreamEvents(t *testing.T, anthropicSSE string) []map[string]any {
+	t.Helper()
+	conv := newResponsesStreamConverter(io.NopCloser(strings.NewReader(anthropicSSE)), "claude-sonnet-4-5")
+	defer conv.Close() //nolint:errcheck
+
+	out, err := io.ReadAll(conv)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	events := []map[string]any{}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		data, ok := strings.CutPrefix(strings.TrimSpace(line), "data: ")
+		if !ok || data == "[DONE]" {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			t.Fatalf("unmarshal event %q: %v", data, err)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+const thinkingResponsesSSE = `event: message_start
+data: {"type":"message_start","message":{"id":"msg_rs","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"think."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Done."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+
+// A streamed Responses turn has to expose the same reasoning a non-streamed
+// one does, replay state included; otherwise a thinking conversation cannot be
+// continued on this dialect.
+func TestStreamResponses_ThinkingBecomesReasoningItem(t *testing.T) {
+	events := responsesStreamEvents(t, thinkingResponsesSSE)
+
+	var deltas []string
+	reasoningAdded, messageAdded := -1, -1
+	for i, event := range events {
+		switch event["type"] {
+		case "response.reasoning_text.delta":
+			deltas = append(deltas, event["delta"].(string))
+		case "response.output_item.added":
+			item := event["item"].(map[string]any)
+			if item["type"] == "reasoning" && reasoningAdded < 0 {
+				reasoningAdded = i
+			}
+			if item["type"] == "message" && messageAdded < 0 {
+				messageAdded = i
+			}
+		}
+	}
+	if strings.Join(deltas, "") != "Let me think." {
+		t.Errorf("reasoning deltas = %q, want the thinking text", strings.Join(deltas, ""))
+	}
+	if reasoningAdded < 0 {
+		t.Fatal("no reasoning output item was added")
+	}
+	if messageAdded >= 0 && reasoningAdded > messageAdded {
+		t.Errorf("reasoning item added at %d, message at %d; reasoning must claim the first slot", reasoningAdded, messageAdded)
+	}
+
+	final := events[len(events)-1]
+	output := final["response"].(map[string]any)["output"].([]any)
+	reasoning := output[0].(map[string]any)
+	if reasoning["type"] != "reasoning" {
+		t.Fatalf("final output[0] = %v, want the reasoning item", reasoning["type"])
+	}
+	extra, _ := json.Marshal(reasoning["extra_content"])
+	want := `{"anthropic":{"thinking_blocks":[{"signature":"sig-1","thinking":"Let me think.","type":"thinking"}]}}`
+	if string(extra) != want {
+		t.Errorf("reasoning extra_content = %s, want %s", extra, want)
+	}
+}
+
+// A stream with no thinking must gain no reasoning item.
+func TestStreamResponses_NoThinkingNoReasoningItem(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_plain","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":4,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+	for _, event := range responsesStreamEvents(t, sse) {
+		if strings.HasPrefix(event["type"].(string), "response.reasoning") {
+			t.Errorf("unexpected reasoning event %v", event["type"])
+		}
+		if added, ok := event["item"].(map[string]any); ok && added["type"] == "reasoning" {
+			t.Error("a stream without thinking must not produce a reasoning item")
+		}
+	}
+}
+
+// A redacted thinking block has no readable text, so its reasoning item exists
+// only to carry the opaque payload the next turn must replay. It still has to
+// be a well-formed item: opened, closed, and present in the terminal output.
+func TestStreamResponses_RedactedThinkingBecomesReasoningItem(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_red","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Done."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+	events := responsesStreamEvents(t, sse)
+
+	added, done := false, false
+	for _, event := range events {
+		item, ok := event["item"].(map[string]any)
+		if !ok || item["type"] != "reasoning" {
+			continue
+		}
+		switch event["type"] {
+		case "response.output_item.added":
+			added = true
+		case "response.output_item.done":
+			done = true
+		}
+	}
+	if !added || !done {
+		t.Errorf("reasoning item added=%v done=%v, want both", added, done)
+	}
+
+	final := events[len(events)-1]
+	output := final["response"].(map[string]any)["output"].([]any)
+	reasoning := output[0].(map[string]any)
+	if reasoning["type"] != "reasoning" {
+		t.Fatalf("final output[0] = %v, want the reasoning item", reasoning["type"])
+	}
+	extra, _ := json.Marshal(reasoning["extra_content"])
+	want := `{"anthropic":{"thinking_blocks":[{"data":"opaque","type":"redacted_thinking"}]}}`
+	if string(extra) != want {
+		t.Errorf("reasoning extra_content = %s, want %s", extra, want)
+	}
+	// The message still follows it, and the redacted item contributes no text.
+	if output[1].(map[string]any)["type"] != "message" {
+		t.Errorf("final output[1] = %v, want the assistant message", output[1])
+	}
+}
+
+// A tool_use-only Anthropic turn has no text, so the Responses output must be
+// the function_call alone rather than an empty message item in front of it.
+func TestConvertAnthropicResponseToResponses_ToolUseOnlyHasNoEmptyMessage(t *testing.T) {
+	resp := &anthropicResponse{
+		ID:    "msg_tool",
+		Type:  "message",
+		Role:  "assistant",
+		Model: "claude-sonnet-4-5",
+		Content: []anthropicContent{{
+			Type:  "tool_use",
+			ID:    "toolu_1",
+			Name:  "lookup_weather",
+			Input: json.RawMessage(`{"city":"Warsaw"}`),
+		}},
+		StopReason: "tool_use",
+	}
+	result := convertAnthropicResponseToResponses(resp, "claude-sonnet-4-5")
+	if len(result.Output) != 1 || result.Output[0].Type != "function_call" {
+		t.Fatalf("Output = %+v, want the function_call alone", result.Output)
+	}
+}
+
+// interleavedThinkingSSE is a single message with two thinking blocks: with
+// interleaved thinking the model can think again after it has written text.
+const interleavedThinkingSSE = `event: message_start
+data: {"type":"message_start","message":{"id":"msg_two","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"First."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Checking."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"thinking_delta","thinking":"Second."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"signature_delta","signature":"sig-2"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2}
+
+event: content_block_start
+data: {"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup_weather","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Warsaw\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":12}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
+
+// Every thinking block of the turn must reach the client in order, each one
+// published as it closes and the last publication holding the whole turn.
+func TestStreamChatCompletion_TwoThinkingBlocks(t *testing.T) {
+	deltas := chatStreamDeltas(t, interleavedThinkingSSE)
+
+	var published []string
+	for _, delta := range deltas {
+		if raw, ok := delta[core.ExtraContentField]; ok {
+			encoded, _ := json.Marshal(raw)
+			published = append(published, string(encoded))
+		}
+	}
+	want := []string{
+		`{"anthropic":{"thinking_blocks":[{"signature":"sig-1","thinking":"First.","type":"thinking"}]}}`,
+		`{"anthropic":{"thinking_blocks":[{"signature":"sig-1","thinking":"First.","type":"thinking"},{"signature":"sig-2","thinking":"Second.","type":"thinking"}]}}`,
+	}
+	if len(published) != len(want) {
+		t.Fatalf("extra_content published %d times: %v, want %d", len(published), published, len(want))
+	}
+	for i := range want {
+		if published[i] != want[i] {
+			t.Errorf("publication %d = %s, want %s", i, published[i], want[i])
+		}
+	}
+}
+
+// A Responses stream has one reasoning item, and its output_item.done cannot
+// be taken back. Thinking that arrives after text therefore adds no delta to a
+// closed item, but its signature still has to reach the terminal output: the
+// SDK builds the next turn from response.output, and Anthropic rejects the
+// turn if any block of it lacks its signature.
+func TestStreamResponses_ThinkingAfterTextKeepsStreamValid(t *testing.T) {
+	events := responsesStreamEvents(t, interleavedThinkingSSE)
+
+	reasoningDone := false
+	var lateDeltas []string
+	for _, event := range events {
+		switch event["type"] {
+		case "response.output_item.done":
+			if event["item"].(map[string]any)["type"] == "reasoning" {
+				reasoningDone = true
+			}
+		case "response.reasoning_text.delta":
+			if reasoningDone {
+				lateDeltas = append(lateDeltas, event["delta"].(string))
+			}
+		}
+	}
+	if !reasoningDone {
+		t.Fatal("reasoning item was never closed")
+	}
+	if len(lateDeltas) > 0 {
+		t.Errorf("reasoning deltas %v were emitted after the item closed", lateDeltas)
+	}
+
+	final := events[len(events)-1]
+	output := final["response"].(map[string]any)["output"].([]any)
+	reasoning := output[0].(map[string]any)
+	if reasoning["type"] != "reasoning" {
+		t.Fatalf("final output[0] = %v, want the reasoning item", reasoning["type"])
+	}
+	extra, _ := json.Marshal(reasoning["extra_content"])
+	want := `{"anthropic":{"thinking_blocks":[{"signature":"sig-1","thinking":"First.","type":"thinking"},{"signature":"sig-2","thinking":"Second.","type":"thinking"}]}}`
+	if string(extra) != want {
+		t.Errorf("terminal reasoning extra_content = %s, want both blocks", extra)
+	}
+	if got := output[len(output)-1].(map[string]any)["type"]; got != "function_call" {
+		t.Errorf("final output ends with %v, want the function_call", got)
+	}
+}
+
+// A signature is the last delta of a thinking block, so a stream cut between
+// it and content_block_stop still holds a block Anthropic will accept back.
+// The incomplete terminal output must carry it: the client continues from
+// response.output, and losing the signature there loses the turn.
+func TestStreamResponses_InterruptedAfterSignatureKeepsReplayState(t *testing.T) {
+	sse := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_cut","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me think."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}
+`
+	events := responsesStreamEvents(t, sse)
+	final := events[len(events)-1]
+	if final["type"] != "response.incomplete" {
+		t.Fatalf("final event = %v, want response.incomplete", final["type"])
+	}
+	output := final["response"].(map[string]any)["output"].([]any)
+	reasoning := output[0].(map[string]any)
+	if reasoning["type"] != "reasoning" {
+		t.Fatalf("final output[0] = %v, want the reasoning item", reasoning["type"])
+	}
+	extra, _ := json.Marshal(reasoning["extra_content"])
+	want := `{"anthropic":{"thinking_blocks":[{"signature":"sig-1","thinking":"Let me think.","type":"thinking"}]}}`
+	if string(extra) != want {
+		t.Errorf("interrupted reasoning extra_content = %s, want the signed block", extra)
+	}
+}
+
+// TestStreamResponses_NormalizedTextStream pins the streamed text lifecycle to
+// the shape OpenAI emits: sequence_number on every event, response.in_progress
+// after response.created, and the content part opened and closed around the
+// item-addressed text deltas.
+func TestStreamResponses_NormalizedTextStream(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","model":"claude-sonnet-4-5-20250929","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	converter := newResponsesStreamConverter(io.NopCloser(strings.NewReader(stream)), "claude-sonnet-4-5-20250929")
+	raw, err := io.ReadAll(converter)
+	if err != nil {
+		t.Fatalf("failed to read from converter: %v", err)
+	}
+	events := parseTestSSEEvents(t, string(raw))
+
+	want := []string{
+		"response.created",
+		"response.in_progress",
+		"response.output_item.added",
+		"response.content_part.added",
+		"response.output_text.delta",
+		"response.output_text.delta",
+		"response.output_text.done",
+		"response.content_part.done",
+		"response.output_item.done",
+		"response.completed",
+		"[DONE]",
+	}
+	got := make([]string, 0, len(events))
+	next := 0
+	for _, event := range events {
+		if event.Done {
+			got = append(got, "[DONE]")
+			continue
+		}
+		got = append(got, event.Name)
+		seq, ok := event.Payload["sequence_number"].(float64)
+		if !ok || int(seq) != next {
+			t.Fatalf("event %s sequence_number = %#v, want %d", event.Name, event.Payload["sequence_number"], next)
+		}
+		next++
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("event order = %v, want %v", got, want)
+	}
+
+	item, _ := events[2].Payload["item"].(map[string]any)
+	itemID, _ := item["id"].(string)
+	if itemID == "" {
+		t.Fatalf("output_item.added item has no id: %v", item)
+	}
+	for _, event := range events[3:8] {
+		if event.Payload["item_id"] != itemID || event.Payload["output_index"] != float64(0) || event.Payload["content_index"] != float64(0) {
+			t.Fatalf("%s is not addressed to item %q part 0: %v", event.Name, itemID, event.Payload)
+		}
+	}
+	if events[6].Payload["text"] != "Hello world" {
+		t.Fatalf("output_text.done text = %#v, want %q", events[6].Payload["text"], "Hello world")
+	}
+	part, _ := events[7].Payload["part"].(map[string]any)
+	if part["type"] != "output_text" || part["text"] != "Hello world" {
+		t.Fatalf("content_part.done part = %#v, want full output_text", part)
+	}
+	inProgress, _ := events[1].Payload["response"].(map[string]any)
+	if inProgress["status"] != "in_progress" {
+		t.Fatalf("response.in_progress status = %#v", inProgress["status"])
+	}
+	if output, ok := inProgress["output"].([]any); !ok || len(output) != 0 {
+		t.Fatalf("response.in_progress output = %#v, want empty array", inProgress["output"])
+	}
+}
+
+// TestStreamResponses_NormalizedThinkingToolStream keeps the sequence numbers
+// contiguous across a thinking block and a tool call, a turn with no message
+// item and therefore no content part.
+func TestStreamResponses_NormalizedThinkingToolStream(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_123","type":"message","role":"assistant","model":"claude-sonnet-4-5-20250929","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me check"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup_weather","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Warsaw\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+	converter := newResponsesStreamConverter(io.NopCloser(strings.NewReader(stream)), "claude-sonnet-4-5-20250929")
+	raw, err := io.ReadAll(converter)
+	if err != nil {
+		t.Fatalf("failed to read from converter: %v", err)
+	}
+	events := parseTestSSEEvents(t, string(raw))
+	if len(events) < 3 || events[0].Name != "response.created" || events[1].Name != "response.in_progress" {
+		t.Fatalf("stream must open with response.created and response.in_progress, got %v", events)
+	}
+	next := 0
+	for _, event := range events {
+		if event.Done {
+			continue
+		}
+		if strings.HasPrefix(event.Name, "response.content_part.") || strings.HasPrefix(event.Name, "response.output_text.") {
+			t.Fatalf("unexpected %s on a turn without a message item", event.Name)
+		}
+		seq, ok := event.Payload["sequence_number"].(float64)
+		if !ok || int(seq) != next {
+			t.Fatalf("event %s sequence_number = %#v, want %d", event.Name, event.Payload["sequence_number"], next)
+		}
+		next++
+	}
+	if last := events[len(events)-2]; last.Name != "response.completed" {
+		t.Fatalf("terminal event = %s, want response.completed", last.Name)
+	}
+}
+
+// TestStreamResponses_CutBeforeMessageStartStillOpens covers an upstream body
+// that ends before message_start: the stream must still open with
+// response.created and response.in_progress before response.incomplete, so
+// stream helpers that snapshot the created response can finish cleanly.
+func TestStreamResponses_CutBeforeMessageStartStillOpens(t *testing.T) {
+	converter := newResponsesStreamConverter(io.NopCloser(strings.NewReader("")), "claude-sonnet-4-5-20250929")
+	raw, err := io.ReadAll(converter)
+	if err != nil {
+		t.Fatalf("failed to read from converter: %v", err)
+	}
+	events := parseTestSSEEvents(t, string(raw))
+	want := []string{"response.created", "response.in_progress", "response.incomplete", "[DONE]"}
+	got := make([]string, 0, len(events))
+	for i, event := range events {
+		if event.Done {
+			got = append(got, "[DONE]")
+			continue
+		}
+		got = append(got, event.Name)
+		if seq, ok := event.Payload["sequence_number"].(float64); !ok || int(seq) != i {
+			t.Fatalf("event %s sequence_number = %#v, want %d", event.Name, event.Payload["sequence_number"], i)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("event order = %v, want %v", got, want)
 	}
 }

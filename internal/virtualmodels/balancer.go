@@ -49,8 +49,9 @@ func (r *roundRobin) prune(active map[string]*redirectEntry) {
 // strategy picks and the choice is re-pinned. Under the adaptive strategy the
 // installed route selector owns that judgement — it receives the pin and
 // answers with the target to use — because it, and not core, knows whether
-// the pinned target is still healthy. It reports false when no target is
-// available.
+// the pinned target is still healthy. The plugin strategy works the same way
+// with the virtual model's named routing-strategy plugin. It reports false
+// when no target is available.
 func (s *Service) balancedResolution(ctx context.Context, snap *snapshot, entry *redirectEntry, sessionID string) (core.ModelSelector, bool) {
 	supported := snap.viableTargets(entry, s.catalog)
 	if len(supported) == 0 {
@@ -77,10 +78,17 @@ func (s *Service) balancedResolution(ctx context.Context, snap *snapshot, entry 
 	// and a one-target-available redirect behave identically with and without
 	// a selector installed.
 	selectorChoice := func(pinned string) (resolvedTarget, bool) {
-		if len(pool) == 1 || normalizeStrategy(entry.strategy) != StrategyAdaptive {
+		if len(pool) == 1 {
 			return resolvedTarget{}, false
 		}
-		return s.adaptiveTarget(ctx, entry, sessionID, pinned, pool)
+		switch normalizeStrategy(entry.strategy) {
+		case StrategyAdaptive:
+			return s.adaptiveTarget(ctx, entry, sessionID, pinned, pool)
+		case StrategyPlugin:
+			return s.pluginTarget(ctx, entry, sessionID, pinned, pool)
+		default:
+			return resolvedTarget{}, false
+		}
 	}
 
 	// pick applies the redirect's strategy to the viable pool. A single viable
@@ -98,7 +106,8 @@ func (s *Service) balancedResolution(ctx context.Context, snap *snapshot, entry 
 		case StrategyCost:
 			return s.cheapestTarget(snap, entry, pool)
 		default:
-			// Round robin, and adaptive whose selector had no usable answer.
+			// Round robin, and adaptive or plugin whose selector had no
+			// usable answer.
 			return pool[weightedIndex(pool, s.balancer.next(entry.vm.Source))]
 		}
 	}

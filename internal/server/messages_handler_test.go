@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -219,6 +221,84 @@ func TestMessages_NativeForwardingSurvivesUntranslatableContent(t *testing.T) {
 	}
 }
 
+// A turn produced by another provider replays a thinking block Anthropic never
+// signed. Forwarding it verbatim would fail the request upstream, so the
+// request takes the translated pipeline, which drops the block.
+func TestMessages_UnsignedThinkingSkipsNativeForwarding(t *testing.T) {
+	provider := &mockProvider{
+		supportedModels: []string{"claude-test"},
+		providerTypes:   map[string]string{"claude-test": "anthropic"},
+		response: &core.ChatResponse{
+			ID:      "msg_1",
+			Choices: []core.Choice{{Message: core.ResponseMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+		},
+	}
+	e := echo.New()
+	handler := NewHandler(provider, nil, nil, nil)
+
+	reqBody := `{"model":"claude-test","max_tokens":64,"messages":[{"role":"user","content":"hi"},` +
+		`{"role":"assistant","content":[{"type":"thinking","thinking":"foreign","signature":""},{"type":"text","text":"391"}]},` +
+		`{"role":"user","content":"and now?"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	if err := handler.Messages(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if provider.lastPassthroughReq != nil {
+		t.Error("request was forwarded natively; Anthropic rejects an unsigned thinking block")
+	}
+	if !strings.Contains(rec.Body.String(), `"text":"ok"`) {
+		t.Errorf("body = %s, want the translated Anthropic envelope", rec.Body.String())
+	}
+}
+
+// Untranslatable content wins over the unsigned-thinking detour: the
+// translated pipeline would reject the request outright, so the body is still
+// forwarded verbatim and Anthropic decides.
+func TestMessages_UnsignedThinkingKeepsNativeForwardingForUntranslatableContent(t *testing.T) {
+	nativeResponse := `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"native"}],"model":"claude-test","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`
+	provider := &mockProvider{
+		supportedModels: []string{"claude-test"},
+		providerTypes:   map[string]string{"claude-test": "anthropic"},
+		passthroughResponse: &core.PassthroughResponse{
+			StatusCode: http.StatusOK,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(nativeResponse)),
+		},
+	}
+	e := echo.New()
+	handler := NewHandler(provider, nil, nil, nil)
+
+	reqBody := `{"model":"claude-test","max_tokens":64,"tools":[{"type":"web_search_20250305","name":"web_search"}],"messages":[{"role":"user","content":"search"},` +
+		`{"role":"assistant","content":[{"type":"thinking","thinking":"foreign","signature":""},{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{"query":"q"}},{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[]}]},` +
+		`{"role":"user","content":"and?"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	if err := handler.Messages(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if provider.lastPassthroughReq == nil {
+		t.Fatal("provider did not receive a passthrough request")
+	}
+	forwardedBody, err := io.ReadAll(provider.lastPassthroughReq.Body)
+	if err != nil {
+		t.Fatalf("read forwarded body: %v", err)
+	}
+	if string(forwardedBody) != reqBody {
+		t.Errorf("forwarded body = %s, want original request verbatim", forwardedBody)
+	}
+}
+
 func TestMessages_TranslatedPipelineStillRejectsUntranslatableContent(t *testing.T) {
 	provider := &mockProvider{
 		supportedModels: []string{"gpt-test"},
@@ -368,5 +448,60 @@ func TestCountMessageTokens(t *testing.T) {
 	tokens, ok := resp["input_tokens"].(float64)
 	if !ok || tokens <= 0 {
 		t.Errorf("input_tokens = %v, want > 0", resp["input_tokens"])
+	}
+}
+
+type tokenCountingMockProvider struct {
+	*mockProvider
+	count    int
+	countErr error
+	calls    int
+}
+
+func (m *tokenCountingMockProvider) CountMessagesTokens(_ context.Context, _ string, _ []byte) (int, error) {
+	m.calls++
+	if m.countErr != nil {
+		return 0, m.countErr
+	}
+	return m.count, nil
+}
+
+// When the route can count tokens itself the answer is exact; when it cannot,
+// or the upstream call fails, the heuristic estimate still answers so the
+// endpoint never stops working.
+func TestCountMessageTokens_ProviderBacked(t *testing.T) {
+	body := `{"model":"claude-test","max_tokens":64,"messages":[{"role":"user","content":"count these tokens please"}]}`
+	call := func(t *testing.T, provider core.RoutableProvider) float64 {
+		t.Helper()
+		handler := NewHandler(provider, nil, nil, nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		if err := handler.CountMessageTokens(echo.New().NewContext(req, rec)); err != nil {
+			t.Fatalf("CountMessageTokens: %v", err)
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return resp["input_tokens"].(float64)
+	}
+
+	exact := &tokenCountingMockProvider{mockProvider: &mockProvider{supportedModels: []string{"claude-test"}}, count: 4321}
+	if got := call(t, exact); got != 4321 || exact.calls != 1 {
+		t.Errorf("provider-backed count = %v (calls %d), want 4321 from the provider", got, exact.calls)
+	}
+
+	heuristic := call(t, &mockProvider{supportedModels: []string{"claude-test"}})
+	if heuristic <= 0 || heuristic == 4321 {
+		t.Errorf("heuristic count = %v, want the estimate when the provider cannot count", heuristic)
+	}
+
+	failing := &tokenCountingMockProvider{mockProvider: &mockProvider{supportedModels: []string{"claude-test"}}, countErr: errors.New("upstream down")}
+	if got := call(t, failing); got != heuristic {
+		t.Errorf("count after upstream failure = %v, want the heuristic %v", got, heuristic)
 	}
 }

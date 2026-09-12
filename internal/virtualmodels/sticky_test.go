@@ -228,8 +228,7 @@ func TestSticky_ConcurrentFirstRequestsAgree(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range workers {
 		wg.Go(func() {
-			resolution, _, err := svc.resolveRequested(
-				context.Background(),
+			resolution, _, err := svc.resolveRequested(context.Background(),
 				core.NewRequestedModelSelector("smart", ""), "", false, "sess-a")
 			if err != nil {
 				errs[i] = err

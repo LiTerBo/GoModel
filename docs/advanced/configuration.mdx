@@ -46,9 +46,20 @@ The most common way to configure GoModel. Set any of the variables below to over
 | `GOMODEL_MASTER_KEY` | Authentication key for securing the gateway           | _(empty, unsafe mode)_ |
 | `GOMODEL_DEMO_MODE`  | Enable public demo warnings in logs and the dashboard  | `false`                |
 | `BODY_SIZE_LIMIT`    | Max request body size (e.g., `10M`, `1024K`, `500KB`) | _(no limit)_           |
+| `STREAM_STALL_TIMEOUT` | Seconds one response write on a model route may wait for the client to read it; `0` disables | `60`                   |
 | `USER_PATH_HEADER`   | Header used to read/write request `user_path` values  | `X-GoModel-User-Path`  |
 | `SWAGGER_ENABLED`    | Expose [Swagger UI](/advanced/swagger-ui); needs a `-tags=swagger` build | `false`                |
+| `AUTH_VERIFY_ENABLED` | Expose [`GET /v1/auth/verify`](/advanced/api-endpoints#key-verification), which reports whether the API key a request carries is valid | `false`                |
 | `PID_FILE`           | Where the running gateway records its process id for `gomodel --reload`. Changing it needs a restart | `data/gomodel.pid` next to a `./data` directory, otherwise the per-user data directory |
+
+`STREAM_STALL_TIMEOUT` (`server.stream_stall_timeout` in YAML) protects the
+gateway from clients that open a streaming response and stop reading it. Each
+write to the client gets a fresh deadline, so it fires only when the client's
+socket stays full for that long, never while a slow model has nothing to send.
+When it fires the connection is closed, the upstream provider request is
+cancelled, and the audit entry records `client_stalled`, also when the stream
+was served from the response cache. Raise it for clients that legitimately
+pause reading a stream for over a minute; set `0` to disable.
 
 Set `GOMODEL_DEMO_MODE=true` for a public or shared demonstration instance.
 GoModel logs a warning at startup and every five minutes, renders a persistent
@@ -142,7 +153,8 @@ Storage is shared by audit logging, usage tracking, and future features like IAM
 | --------------------------------- | ------------------------------------------ | ------- |
 | `LOGGING_ENABLED`                 | Enable audit logging                       | `true`  |
 | `LOGGING_LOG_BODIES`              | Log request/response bodies                | `true`  |
-| `LOGGING_LOG_REVISION_BODIES`     | Log rewritten bodies from request rewriters | `true`  |
+| `LOGGING_LOG_REVISION_BODIES`     | Log rewritten bodies from request rewriters and prompt guardrails | `true`  |
+| `LOGGING_LOG_GUARDRAIL_STEPS`     | One audit revision per editing prompt guardrail (off: one per chain) | `true`  |
 | `LOGGING_LOG_AUDIO_BODIES`        | Log audio endpoint inputs/outputs          | `false` |
 | `LOGGING_LOG_IMAGE_BODIES`        | Log image endpoint inputs/outputs          | `false` |
 | `LOGGING_LOG_IMAGE_BODIES_SCOPE`  | Which image bytes to store: `all`, `input`, `output` | `all` |
@@ -177,10 +189,15 @@ to `LOGGING_FLUSH_INTERVAL` seconds to appear through the stored-log API.
   `LOGGING_LOG_REVISION_BODIES` refines `LOGGING_LOG_BODIES` for the ingress
   request-rewrite chain — it has no effect unless body logging is enabled. With
   both on, every rewriter that changed a request (for example GoModel Pro token
-  compression) stores the full rewritten body alongside the original client
-  body in the audit entry. Disabling it keeps the revision metadata (rewriter
-  name, byte sizes, tokens saved, change detail) but drops the extra body copy,
-  roughly halving audit storage per rewritten request.
+  compression) and every prompt guardrail that edited the prompt store the
+  request as they left it alongside the original client body in the audit
+  entry, so a chain of edits reads step by step. `LOGGING_LOG_GUARDRAIL_STEPS`
+  controls that per-step record (the request bodies are encoded off the request
+  path): turn it off to record a chain's edits as one revision carrying the
+  request as forwarded, with no per-step snapshots.
+  Disabling `LOGGING_LOG_REVISION_BODIES` keeps the revision metadata (rewriter name, byte sizes, tokens
+  saved, change detail) but drops the extra body copies, roughly halving audit
+  storage per rewritten request.
 </Note>
 
 <Note>

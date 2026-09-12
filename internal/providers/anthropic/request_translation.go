@@ -242,6 +242,10 @@ func buildAnthropicMessageContent(msg core.Message) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		extra, err := anthropicExtraContentFrom(msg.ExtraFields)
+		if err != nil {
+			return nil, err
+		}
 		// Tool results may carry images (screenshots, image files read by a
 		// tool); Anthropic accepts text and image blocks inside tool_result,
 		// so structured content is forwarded as blocks rather than flattened.
@@ -254,7 +258,7 @@ func buildAnthropicMessageContent(msg core.Message) (any, error) {
 				Type:         "tool_result",
 				ToolUseID:    toolUseID,
 				Content:      content,
-				IsError:      bytes.Equal(bytes.TrimSpace(msg.ExtraFields.Lookup(core.ToolResultIsErrorField)), []byte("true")),
+				IsError:      extra.IsError,
 				CacheControl: cacheControl,
 			},
 		}, nil
@@ -318,6 +322,25 @@ func buildAnthropicMessageContent(msg core.Message) (any, error) {
 	return blocks, nil
 }
 
+// anthropicExtraContent is the extra_content.anthropic object the Anthropic
+// Messages ingress attaches to canonical messages.
+type anthropicExtraContent struct {
+	ThinkingBlocks []anthropicContentBlock `json:"thinking_blocks"`
+	IsError        bool                    `json:"is_error"`
+}
+
+func anthropicExtraContentFrom(fields core.UnknownJSONFields) (anthropicExtraContent, error) {
+	var extra anthropicExtraContent
+	raw := fields.ExtraContent(core.ExtraContentVendorAnthropic)
+	if len(raw) == 0 {
+		return extra, nil
+	}
+	if err := json.Unmarshal(raw, &extra); err != nil {
+		return extra, core.NewInvalidRequestError("invalid extra_content.anthropic payload", err)
+	}
+	return extra, nil
+}
+
 // prependThinkingBlocks restores the thinking blocks the Anthropic ingress
 // preserved on an assistant message. They must lead the content, unchanged,
 // so a thinking-enabled tool-use turn can continue; Anthropic ignores them
@@ -326,14 +349,11 @@ func prependThinkingBlocks(msg core.Message, content any) (any, error) {
 	if msg.Role != "assistant" {
 		return content, nil
 	}
-	raw := msg.ExtraFields.Lookup(core.ThinkingBlocksField)
-	if len(bytes.TrimSpace(raw)) == 0 || core.IsJSONNull(bytes.TrimSpace(raw)) {
-		return content, nil
+	extra, err := anthropicExtraContentFrom(msg.ExtraFields)
+	if err != nil {
+		return nil, err
 	}
-	var thinking []anthropicContentBlock
-	if err := json.Unmarshal(raw, &thinking); err != nil {
-		return nil, core.NewInvalidRequestError("invalid "+core.ThinkingBlocksField+" payload", err)
-	}
+	thinking := signedThinkingBlocks(extra.ThinkingBlocks)
 	if len(thinking) == 0 {
 		return content, nil
 	}
@@ -348,6 +368,24 @@ func prependThinkingBlocks(msg core.Message, content any) (any, error) {
 		blocks = append(blocks, c...)
 	}
 	return blocks, nil
+}
+
+// signedThinkingBlocks keeps the replayed blocks Anthropic can accept back.
+// Anthropic rejects a thinking block whose signature it did not mint — a
+// missing one with "signature: Field required", any other with "Invalid
+// signature" — so reasoning another provider produced (which the Messages
+// dialect surfaces as a thinking block with an empty signature) is dropped
+// here instead of failing the whole turn. Redacted blocks carry opaque data
+// rather than a signature and are always kept.
+func signedThinkingBlocks(blocks []anthropicContentBlock) []anthropicContentBlock {
+	kept := make([]anthropicContentBlock, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Type == "thinking" && strings.TrimSpace(block.Signature) == "" {
+			continue
+		}
+		kept = append(kept, block)
+	}
+	return kept
 }
 
 // convertToAnthropicRequest converts core.ChatRequest to Anthropic format.
@@ -380,6 +418,7 @@ func convertToAnthropicRequest(req *core.ChatRequest) (*anthropicRequest, error)
 	}
 
 	dropUnsupportedSamplingParameters(anthropicReq)
+	dropConflictingSamplingParameter(anthropicReq)
 
 	if effort := resolveAnthropicReasoningEffort(req); effort != "" {
 		applyReasoning(anthropicReq, req.Model, effort)
@@ -469,6 +508,23 @@ func dropUnsupportedSamplingParameters(req *anthropicRequest) {
 	}
 	slog.Warn("dropping sampling parameters the model does not accept", attrs...)
 	req.Temperature = nil
+	req.TopP = nil
+}
+
+// dropConflictingSamplingParameter drops top_p when the caller sent both
+// temperature and top_p. Anthropic documents the two as mutually exclusive
+// ("we generally recommend altering temperature or top_p, but not both") and
+// every current model answers a request carrying both with a 400
+// ("`temperature` and `top_p` cannot both be specified for this model"), so an
+// OpenAI SDK that fills in both defaults could not reach Anthropic at all.
+// temperature is kept because it is the parameter OpenAI clients actually vary
+// and the one Anthropic's own guidance treats as primary.
+func dropConflictingSamplingParameter(req *anthropicRequest) {
+	if req.Temperature == nil || req.TopP == nil {
+		return
+	}
+	slog.Warn("dropping top_p; Anthropic accepts only one of temperature and top_p",
+		"model", req.Model, "temperature", *req.Temperature, "top_p", *req.TopP)
 	req.TopP = nil
 }
 

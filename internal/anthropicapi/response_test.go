@@ -2,6 +2,7 @@ package anthropicapi
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/enterpilot/gomodel/internal/core"
@@ -62,6 +63,37 @@ func TestFromChatResponseToolCalls(t *testing.T) {
 	}
 	if resp.StopReason != "tool_use" {
 		t.Errorf("StopReason = %q, want tool_use", resp.StopReason)
+	}
+	if len(block.ExtraContent) != 0 {
+		t.Errorf("extra_content = %s, want absent", block.ExtraContent)
+	}
+}
+
+func TestFromChatResponseToolCallExtraContent(t *testing.T) {
+	extra := json.RawMessage(`{"google":{"thought_signature":"sig"}}`)
+	resp := FromChatResponse(&core.ChatResponse{
+		Choices: []core.Choice{{
+			Message: core.ResponseMessage{
+				Role: "assistant",
+				ToolCalls: []core.ToolCall{{
+					ID:          "tu_1",
+					Type:        "function",
+					Function:    core.FunctionCall{Name: "get_weather", Arguments: `{}`},
+					ExtraFields: core.UnknownJSONFieldsFromMap(map[string]json.RawMessage{core.ExtraContentField: extra}),
+				}},
+			},
+			FinishReason: "tool_calls",
+		}},
+	})
+	if len(resp.Content) != 1 || string(resp.Content[0].ExtraContent) != string(extra) {
+		t.Fatalf("content = %+v, want tool_use with extra_content", resp.Content)
+	}
+	encoded, err := json.Marshal(resp.Content[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"extra_content":{"google":{"thought_signature":"sig"}}`) {
+		t.Errorf("encoded block = %s", encoded)
 	}
 }
 
@@ -189,5 +221,88 @@ func TestFromChatResponseStopSequenceDoesNotOverrideToolUse(t *testing.T) {
 	out := FromChatResponse(resp)
 	if out.StopReason != "tool_use" || out.StopSequence != nil {
 		t.Errorf("got stop_reason=%q stop_sequence=%v, want tool_use/nil", out.StopReason, out.StopSequence)
+	}
+}
+
+// FromChatResponse renders thinking from the replay state a provider attached
+// when it has one, and falls back to plain reasoning_content text otherwise —
+// a provider with no thinking protocol of its own (DeepSeek, Cohere, …) still
+// has its reasoning surfaced, with the empty signature the Anthropic schema
+// requires on every thinking block.
+func TestFromChatResponseThinkingBlocks(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields map[string]json.RawMessage
+		want   string
+	}{
+		{
+			name: "signed blocks are rendered verbatim",
+			fields: map[string]json.RawMessage{
+				"reasoning_content": json.RawMessage(`"Let me think."`),
+				core.ExtraContentField: json.RawMessage(
+					`{"anthropic":{"thinking_blocks":[{"type":"thinking","thinking":"Let me think.","signature":"sig-1"},{"type":"redacted_thinking","data":"opaque"}]}}`),
+			},
+			want: `[{"type":"thinking","thinking":"Let me think.","signature":"sig-1"},{"type":"redacted_thinking","data":"opaque"},{"type":"text","text":"Hi"}]`,
+		},
+		{
+			name:   "reasoning_content alone still renders a thinking block",
+			fields: map[string]json.RawMessage{"reasoning_content": json.RawMessage(`"Let me think."`)},
+			want:   `[{"type":"thinking","thinking":"Let me think.","signature":""},{"type":"text","text":"Hi"}]`,
+		},
+		{
+			name:   "the reasoning member alone still renders a thinking block",
+			fields: map[string]json.RawMessage{"reasoning": json.RawMessage(`"Let me think."`)},
+			want:   `[{"type":"thinking","thinking":"Let me think.","signature":""},{"type":"text","text":"Hi"}]`,
+		},
+		{
+			name: "reasoning_content wins over reasoning",
+			fields: map[string]json.RawMessage{
+				"reasoning_content": json.RawMessage(`"Canonical."`),
+				"reasoning":         json.RawMessage(`"Vendor."`),
+			},
+			want: `[{"type":"thinking","thinking":"Canonical.","signature":""},{"type":"text","text":"Hi"}]`,
+		},
+		{
+			name: "a non-string reasoning member is ignored",
+			fields: map[string]json.RawMessage{
+				"reasoning": json.RawMessage(`{"effort":"high"}`),
+			},
+			want: `[{"type":"text","text":"Hi"}]`,
+		},
+		{
+			name: "another vendor's replay state is not thinking",
+			fields: map[string]json.RawMessage{
+				core.ExtraContentField: json.RawMessage(`{"google":{"thought_signature":"sig"}}`),
+			},
+			want: `[{"type":"text","text":"Hi"}]`,
+		},
+		{
+			name: "a malformed member falls back to the reasoning text",
+			fields: map[string]json.RawMessage{
+				"reasoning_content":    json.RawMessage(`"Let me think."`),
+				core.ExtraContentField: json.RawMessage(`{"anthropic":{"thinking_blocks":"nope"}}`),
+			},
+			want: `[{"type":"thinking","thinking":"Let me think.","signature":""},{"type":"text","text":"Hi"}]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &core.ChatResponse{Choices: []core.Choice{{
+				Message: core.ResponseMessage{
+					Role:        "assistant",
+					Content:     "Hi",
+					ExtraFields: core.UnknownJSONFieldsFromMap(tt.fields),
+				},
+				FinishReason: "stop",
+			}}}
+			got, err := json.Marshal(FromChatResponse(resp).Content)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("content = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }

@@ -107,7 +107,7 @@ test("capability test panel i18n keys exist in both language catalogs", async ()
     await readFile(new URL("../messages/en.json", import.meta.url), "utf8"),
   );
   const zh = JSON.parse(
-    await readFile(new URL("../messages/zh.json", import.meta.url), "utf8"),
+    await readFile(new URL("../messages/zh-CN.json", import.meta.url), "utf8"),
   );
 
   const keys = [

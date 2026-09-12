@@ -46,6 +46,12 @@ type ServerConfig struct {
 	// siblings, and the /p/{provider}/v1/realtime passthrough upgrade.
 	// Default: true. Only providers implementing realtime accept sessions.
 	RealtimeEnabled bool `yaml:"realtime_enabled" env:"REALTIME_ENABLED"`
+	// AuthVerifyEnabled exposes GET /v1/auth/verify, which reports whether the
+	// API key a request carries authenticates against this gateway. It sits
+	// outside /admin so it keeps working when the admin API is disabled.
+	// Default: false — turn it on only when a service in front of the gateway
+	// needs to validate keys without holding a copy of them.
+	AuthVerifyEnabled bool `yaml:"auth_verify_enabled" env:"AUTH_VERIFY_ENABLED"`
 	// PIDFile records the process id of the running gateway so `gomodel --reload`
 	// can find it. Default: DefaultPIDFilePath(). Set it per instance when
 	// several gateways share a host, or to "" in config.yaml to write no pid
@@ -54,7 +60,21 @@ type ServerConfig struct {
 	// needs a restart — it names the process that is already running — so a
 	// reload only warns about it.
 	PIDFile string `yaml:"pid_file" env:"PID_FILE"`
+	// StreamStallTimeout bounds, in seconds, how long a single response write
+	// on a model interaction route may wait for the client to accept bytes
+	// before the connection is dropped. It fires only when the client has
+	// stopped reading (its socket buffer is full), never while the gateway is
+	// waiting on the provider, so slow models are unaffected. Without it a
+	// client that stops reading a stream pins a goroutine and the upstream
+	// provider connection until the provider side times out.
+	// Default: 60 (DefaultStreamStallTimeoutSeconds). 0 disables the limit.
+	StreamStallTimeout int `yaml:"stream_stall_timeout" env:"STREAM_STALL_TIMEOUT"`
 }
+
+// DefaultStreamStallTimeoutSeconds is the default ServerConfig.StreamStallTimeout.
+// It matches the send timeout most reverse proxies apply between two
+// successive writes to a client.
+const DefaultStreamStallTimeoutSeconds = 60
 
 // LegacyPIDFilePath is the pid file location used next to a project-local
 // ./data directory, matching where the SQLite database lands in the same setup.
