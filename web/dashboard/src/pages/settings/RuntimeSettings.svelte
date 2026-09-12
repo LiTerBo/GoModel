@@ -12,6 +12,16 @@
   let savingKey = $state("");
   let error = $state("");
 
+  const SETTING_LABELS = {
+    "complexity_routing.thresholds": m.settings_complexity_thresholds,
+  };
+  const SETTING_DESCS = {
+    "complexity_routing.thresholds": m.settings_complexity_help,
+  };
+  const SETTING_OPTION_LABELS = {
+    "complexity_routing.thresholds": {},
+  };
+
   async function load() {
     loading = true;
     error = "";
@@ -86,10 +96,10 @@
         <div class="runtime-setting-row">
           <div>
             <label class="form-field-label" for={`runtime-setting-${setting.key}`}>
-              {setting.label}
+              {SETTING_LABELS[setting.key] ? SETTING_LABELS[setting.key]() : setting.label}
             </label>
             {#if setting.description}
-              <p class="runtime-setting-description">{setting.description}</p>
+              <p class="runtime-setting-description">{SETTING_DESCS[setting.key] ? SETTING_DESCS[setting.key]() : setting.description}</p>
             {/if}
             {#if setting.locked}
               <p class="runtime-setting-managed">

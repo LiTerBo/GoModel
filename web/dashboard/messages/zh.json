@@ -691,6 +691,13 @@
   "models_tw_remove_window": "移除",
   "models_tw_add_range": "添加时段",
   "models_tw_window_rates": "窗口费率",
+  "models_tw_mon": "周一",
+  "models_tw_tue": "周二",
+  "models_tw_wed": "周三",
+  "models_tw_thu": "周四",
+  "models_tw_fri": "周五",
+  "models_tw_sat": "周六",
+  "models_tw_sun": "周日",
   "models_remove_override": "移除覆盖",
   "api_keys_title": "API 密钥",
   "api_keys_create": "创建 API 密钥",
@@ -1625,5 +1632,7 @@
   "models_source_conflict": "“{source}” 的虚拟模型已存在。请选择其他源。",
   "models_mask_rename_confirm": "已存在名为“{name}”的模型。重命名为该名称会在列表中遮蔽该模型。是否继续？",
   "models_remove_policy_confirm": "移除 “{source}” 的虚拟模型？这将恢复为继承/默认行为。",
-  "models_pricing_remove_confirm": "移除 “{selector}” 的模型定价覆盖？"
+  "models_pricing_remove_confirm": "移除 “{selector}” 的模型定价覆盖？",
+  "settings_complexity_thresholds": "复杂度阈值",
+  "settings_complexity_help": "带宽边界值——范围 (0,1)，升序排列。试运行估计值；建议根据审计日志重新校准。"
 }

@@ -711,6 +711,13 @@
   "models_tw_remove_window": "Remove",
   "models_tw_add_range": "Add Range",
   "models_tw_window_rates": "Window rates",
+  "models_tw_mon": "Mon",
+  "models_tw_tue": "Tue",
+  "models_tw_wed": "Wed",
+  "models_tw_thu": "Thu",
+  "models_tw_fri": "Fri",
+  "models_tw_sat": "Sat",
+  "models_tw_sun": "Sun",
   "models_remove_override": "Remove Override",
   "api_keys_title": "API Keys",
   "api_keys_create": "Create API Key",
@@ -1705,5 +1712,7 @@
   "models_source_conflict": "A virtual model for \"{source}\" already exists. Choose a different Source.",
   "models_mask_rename_confirm": "A model named \"{name}\" already exists. Renaming to that name will mask the model in the list. Continue?",
   "models_remove_policy_confirm": "Remove the virtual model for \"{source}\"? This reverts to inherited/default behavior.",
-  "models_pricing_remove_confirm": "Remove the model pricing override for \"{selector}\"?"
+  "models_pricing_remove_confirm": "Remove the model pricing override for \"{selector}\"?",
+  "settings_complexity_thresholds": "Complexity thresholds",
+  "settings_complexity_help": "Band boundaries — values in (0,1), ascending. Trial-run estimates; recalibrate from audit logs."
 }

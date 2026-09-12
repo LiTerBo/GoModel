@@ -10,6 +10,15 @@
   import * as m from "$lib/paraglide/messages.js";
 
   const po = pricingOverrides;
+  const WEEKDAY_LABELS = {
+    mon: m.models_tw_mon,
+    tue: m.models_tw_tue,
+    wed: m.models_tw_wed,
+    thu: m.models_tw_thu,
+    fri: m.models_tw_fri,
+    sat: m.models_tw_sat,
+    sun: m.models_tw_sun,
+  };
 </script>
 
 <EditorDialog
@@ -141,7 +150,7 @@
                   {#each ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as day}
                     <label class="tw-day-label">
                       <input type="checkbox" checked={range.days.includes(day)} onchange={() => po.toggleTimeRangeDay(range, day)} />
-                      <span>{day.slice(0, 2)}</span>
+                      <span>{WEEKDAY_LABELS[day]()}</span>
                     </label>
                   {/each}
                 </div>
