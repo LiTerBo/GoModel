@@ -127,8 +127,11 @@ policies, its own allowlist, and model-side policies applied.
 Restrict a key to specific models with the optional `allowed_models` on
 `POST /admin/auth-keys` (omitted means no key-level restriction, like every
 other optional creation field) or later with
-`PUT /admin/auth-keys/<key-id>/allowed-models` (`{"allowed_models": ["anthropic/*", "openai/gpt-4o"]}`;
-an explicit empty list lifts the key-level restriction; omitting the field is rejected). Group- and user-level
+`PUT /admin/auth-keys/<key-id>/allowed-models` (`{"allowed_models": ["anthropic/*", "openai/gpt-4o", "smart"]}`;
+an explicit empty list lifts the key-level restriction; omitting the field is rejected). An entry may be a
+**virtual model name** (`smart` in the example): it authorizes requests that ask for that name, so the key can
+call the alias whatever targets it has and `GET /v1/models` lists just that alias, without the provider or
+concrete model behind it. Group- and user-level
 allowlists are managed through the [user endpoints](#user-endpoints).
 
 Dashboard access only gates `/admin/*`. Model endpoints and the self-service [`GET /v1/usage`](/advanced/usage-api) endpoint stay available to every managed key.
