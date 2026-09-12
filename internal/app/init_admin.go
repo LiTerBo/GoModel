@@ -79,6 +79,7 @@ func (b *bootstrap) initAdmin() error {
 			app.live,
 			b.requestHealth,
 			usagePricingRecalculationConfigured(appCfg),
+			auditlog.NewVirtualModelChangeSink(app.audit.Logger),
 			appCfg.Server.BasePath,
 			adminCfg.UIEnabled,
 		)
@@ -145,6 +146,9 @@ func newAdminHandlers(
 	liveBroker *live.Broker,
 	requestHealth admin.RequestHealthSource,
 	usagePricingRecalculationEnabled bool,
+	// virtualModelEvents records virtual model management actions in the audit
+	// trail; nil disables the recording.
+	virtualModelEvents func(auditlog.VirtualModelChange),
 	basePath string,
 	uiEnabled bool,
 ) (*admin.Handler, *dashboard.Handler, auditlog.Reader, error) {
@@ -204,6 +208,7 @@ func newAdminHandlers(
 		admin.WithAuthKeys(authKeyService),
 		admin.WithUsers(userService),
 		admin.WithVirtualModels(virtualModelService),
+		admin.WithVirtualModelEvents(virtualModelEvents),
 		admin.WithPricingOverrides(pricingOverrideService),
 		admin.WithWorkflows(workflowService),
 		admin.WithGuardrailService(guardrailService),

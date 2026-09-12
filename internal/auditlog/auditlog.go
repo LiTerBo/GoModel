@@ -162,6 +162,11 @@ type LogData struct {
 	// moved from the primary selector to a configured failover target.
 	Failover *FailoverSnapshot `json:"failover,omitempty" bson:"failover,omitempty"`
 
+	// VirtualModel captures a management action on a virtual model (retarget,
+	// rename, lock toggle, delete) recorded as a lifecycle entry rather than a
+	// request.
+	VirtualModel *VirtualModelChangeSnapshot `json:"virtual_model,omitempty" bson:"virtual_model,omitempty"`
+
 	// Attempts captures provider calls made for this logical request. SQL
 	// stores split this into audit_log_attempts; Mongo stores it embedded.
 	Attempts []AttemptSnapshot `json:"attempts,omitempty" bson:"attempts,omitempty"`

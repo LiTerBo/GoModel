@@ -35,14 +35,17 @@ import (
 
 // Handler serves admin API endpoints.
 type Handler struct {
-	usageReader         usage.UsageReader
-	usageRecalculator   usage.PricingRecalculator
-	auditReader         auditlog.Reader
-	registry            *providers.ModelRegistry
-	pricingResolver     usage.PricingResolver
-	authKeys            *authkeys.Service
-	users               *users.Service
-	virtualModels       *virtualmodels.Service
+	usageReader       usage.UsageReader
+	usageRecalculator usage.PricingRecalculator
+	auditReader       auditlog.Reader
+	registry          *providers.ModelRegistry
+	pricingResolver   usage.PricingResolver
+	authKeys          *authkeys.Service
+	users             *users.Service
+	virtualModels     *virtualmodels.Service
+	// virtualModelEvents receives virtual model management actions; nil drops
+	// them (see WithVirtualModelEvents).
+	virtualModelEvents  func(auditlog.VirtualModelChange)
 	mcpServers          MCPServerAdmin
 	pricingOverrides    *pricingoverrides.Service
 	workflows           *workflows.Service

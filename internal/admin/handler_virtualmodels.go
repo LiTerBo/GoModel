@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/enterpilot/gomodel/internal/auditlog"
 	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/plugins"
 	"github.com/enterpilot/gomodel/internal/virtualmodels"
@@ -122,11 +123,19 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, err)
 	}
-	if reason := h.lockRejection(req, vm); reason != "" {
+	// The stored row answers both the lock guard and the audit event, so it is
+	// read once; a rename guards the row it moves away from.
+	guardSource := strings.TrimSpace(req.OldSource)
+	if guardSource == "" {
+		guardSource = source
+	}
+	stored, _ := h.virtualModels.Get(guardSource)
+	if reason := h.lockRejection(stored, vm, req.Unlock, req.Locked); reason != "" {
 		return handleError(c, lockedVirtualModelError(reason))
 	}
 	oldSource := strings.TrimSpace(req.OldSource)
-	if oldSource != "" && oldSource != source {
+	renamed := oldSource != "" && oldSource != source
+	if renamed {
 		err = h.virtualModels.Rename(c.Request().Context(), oldSource, vm)
 	} else {
 		err = h.virtualModels.Upsert(c.Request().Context(), vm)
@@ -134,6 +143,7 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, virtualModelWriteError(err))
 	}
+	h.upsertVirtualModelChange(c, stored, vm, virtualModelChangeAction(stored, vm, renamed))
 
 	if view, ok := h.findVirtualModelView(vm.Source); ok {
 		return c.JSON(http.StatusOK, view)
@@ -175,14 +185,12 @@ func (h *Handler) DeleteVirtualModel(c *echo.Context) error {
 	if !ok || stored == nil {
 		return handleError(c, core.NewNotFoundError("virtual model not found: "+source))
 	}
-	if !req.Force {
-		if used := h.virtualModelUsage(stored); len(used) > 0 {
-			return handleError(c, virtualModelInUseError(
-				stored.Source,
-				countGrantKind(used, "credential"),
-				countGrantKind(used, "user_path"),
-			))
-		}
+	// The reachability list answers both the guard and the audit event.
+	used := h.virtualModelUsage(stored)
+	credentials := countGrantKind(used, "credential")
+	userPaths := countGrantKind(used, "user_path")
+	if !req.Force && len(used) > 0 {
+		return handleError(c, virtualModelInUseError(stored.Source, credentials, userPaths))
 	}
 
 	if err := h.virtualModels.Delete(c.Request().Context(), source); err != nil {
@@ -191,6 +199,15 @@ func (h *Handler) DeleteVirtualModel(c *echo.Context) error {
 		}
 		return handleError(c, virtualModelWriteError(err))
 	}
+	h.emitVirtualModelChange(c, auditlog.VirtualModelChange{
+		Action:      auditlog.VirtualModelActionDelete,
+		Source:      stored.Source,
+		OldTargets:  targetStrings(*stored),
+		Locked:      stored.Locked,
+		Forced:      req.Force,
+		Credentials: credentials,
+		UserPaths:   userPaths,
+	})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -232,16 +249,11 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 // The guard lives here rather than in the service because it is the operator
 // guard on the admin API: config-declared rows are versioned by their config
 // and never come through this path.
-func (h *Handler) lockRejection(req upsertVirtualModelRequest, next virtualmodels.VirtualModel) string {
-	if req.Unlock || (req.Locked != nil && !*req.Locked) {
+func (h *Handler) lockRejection(stored *virtualmodels.VirtualModel, next virtualmodels.VirtualModel, unlock bool, requestedLock *bool) string {
+	if unlock || (requestedLock != nil && !*requestedLock) {
 		return ""
 	}
-	guardSource := strings.TrimSpace(req.OldSource)
-	if guardSource == "" {
-		guardSource = next.Source
-	}
-	stored, ok := h.virtualModels.Get(guardSource)
-	if !ok || stored == nil || !stored.Locked {
+	if stored == nil || !stored.Locked {
 		return ""
 	}
 	if !virtualmodels.ResolutionConfigChanged(*stored, next) {

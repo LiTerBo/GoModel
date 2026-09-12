@@ -8,14 +8,17 @@ import (
 
 // responseSideLogDataFields are the LogData fields CreateStreamEntry may
 // legitimately leave unset: they are not known when the stream entry is
-// created and are filled in by the stream observer once the stream closes.
-// Every other field describes the request and must survive the copy.
+// created and are filled in by the stream observer once the stream closes,
+// or they belong to a lifecycle entry that never streams at all (the
+// VirtualModel management snapshot). Every other field describes the request
+// and must survive the copy.
 var responseSideLogDataFields = map[string]bool{
 	"ResponseBody":               true,
 	"ResponseBodyTooBigToHandle": true,
 	"ErrorMessage":               true,
 	"ErrorCode":                  true,
 	"ErrorProvider":              true,
+	"VirtualModel":               true,
 }
 
 // A streamed request is persisted from the CreateStreamEntry copy — the base
