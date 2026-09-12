@@ -38,6 +38,7 @@ type ModelInfo struct {
 // compare stored values directly.
 func newModelInfo(model core.Model, provider core.Provider, providerName, providerType string) *ModelInfo {
 	model.ID = strings.TrimSpace(model.ID)
+	model.Metadata = stampDiscoveredCapabilitySources(model.Metadata)
 	return &ModelInfo{
 		Model:        model,
 		Provider:     provider,
@@ -45,6 +46,33 @@ func newModelInfo(model core.Model, provider core.Provider, providerName, provid
 		ProviderType: strings.TrimSpace(providerType),
 		Discovered:   model.Metadata.Clone(),
 	}
+}
+
+// stampDiscoveredCapabilitySources records core.CapSrcDiscovered as the origin
+// of every capability the provider reported, on a copy so the caller's response
+// object is left alone. The stamp belongs here rather than in catalog
+// enrichment: a deployment with no model list configured never runs enrichment,
+// and its provider-reported capabilities would otherwise publish with an empty
+// source map, leaving /v1/models unable to say where a value came from.
+//
+// A capability that already carries a source keeps it, so nothing overrides a
+// more specific origin. Later layers (config, registry, heuristic, test,
+// observed) still win: they merge their own sources over this base. Returns nil
+// for nil input.
+func stampDiscoveredCapabilitySources(meta *core.ModelMetadata) *core.ModelMetadata {
+	if meta == nil || len(meta.Capabilities) == 0 {
+		return meta
+	}
+	stamped := meta.Clone()
+	if stamped.CapabilitySources == nil {
+		stamped.CapabilitySources = make(map[string]string, len(stamped.Capabilities))
+	}
+	for capability := range stamped.Capabilities {
+		if _, sourced := stamped.CapabilitySources[capability]; !sourced {
+			stamped.CapabilitySources[capability] = core.CapSrcDiscovered
+		}
+	}
+	return stamped
 }
 
 // ModelRegistry manages the mapping of models to their providers.

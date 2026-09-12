@@ -221,3 +221,53 @@ func readCachedMetadata(t *testing.T, cachePath, providerName, modelID string) *
 	t.Fatalf("model %q missing from cache", modelID)
 	return nil
 }
+
+// TestProviderReportedCapabilitiesCarryDiscoveredProvenance covers the case the
+// catalog test cannot reach: a deployment with no model list configured, where
+// nothing enriches the provider's report. The origin of a capability a provider
+// reports has to be recorded where that report becomes registry state, on both
+// the live fetch and the cache restore path - otherwise /v1/models publishes
+// capabilities with an empty source map and no consumer can tell where the
+// value came from.
+func TestProviderReportedCapabilitiesCarryDiscoveredProvenance(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	live := newTestRegistry(t, reportedModels(), nil)
+	if err := live.Initialize(ctx); err != nil {
+		t.Fatalf("registry Initialize: %v", err)
+	}
+
+	cache := modelcache.NewLocalCache(filepath.Join(t.TempDir(), "models.json"))
+	writer := newTestRegistry(t, reportedModels(), nil)
+	writer.SetCache(cache)
+	if err := writer.Initialize(ctx); err != nil {
+		t.Fatalf("registry Initialize: %v", err)
+	}
+	if err := writer.SaveToCache(ctx); err != nil {
+		t.Fatalf("SaveToCache: %v", err)
+	}
+
+	restored := newTestRegistry(t, nil, errors.New("provider unreachable"))
+	restored.SetCache(cache)
+	if _, err := restored.LoadFromCache(ctx); err != nil {
+		t.Fatalf("LoadFromCache: %v", err)
+	}
+
+	for name, registry := range map[string]*providers.ModelRegistry{
+		"live fetch":    live,
+		"cache restore": restored,
+	} {
+		meta := lookupMetadata(t, registry)
+		for _, capability := range []string{"function_calling", "vision"} {
+			if !meta.Capabilities[capability] {
+				t.Errorf("%s: %s missing: %v", name, capability, meta.Capabilities)
+				continue
+			}
+			if got := meta.CapabilitySources[capability]; got != core.CapSrcDiscovered {
+				t.Errorf("%s: %s source = %q, want %q", name, capability, got, core.CapSrcDiscovered)
+			}
+		}
+	}
+}
