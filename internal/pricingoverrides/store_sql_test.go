@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enterpilot/gomodel/internal/core"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/enterpilot/gomodel/internal/storage/mongotest"
@@ -176,6 +177,66 @@ func TestStoreDeleteRemovesOverride(t *testing.T) {
 		}
 		if len(overrides) != 0 {
 			t.Errorf("len(overrides) = %d after delete, want 0", len(overrides))
+		}
+	})
+}
+
+func TestStorePersistenceTimeWindows(t *testing.T) {
+	runStoreSuite(t, func(t *testing.T, store Store) {
+		ctx := context.Background()
+
+		windows := []core.ModelPricingTimeWindow{{
+			Label: "off_peak",
+			UTCRanges: []core.ModelPricingUTCRange{
+				{Days: []string{"mon", "tue", "wed", "thu", "fri"}, Start: "00:00", End: "01:00"},
+				{Days: []string{"sat", "sun"}, Start: "00:00", End: "24:00"},
+			},
+			Pricing: core.ModelPricingTimeWindowRates{
+				InputPerMtok:  coreFloat(0.15),
+				OutputPerMtok: coreFloat(0.60),
+			},
+		}}
+
+		if err := store.Upsert(ctx, Override{
+			Selector: "deepseek/deepseek-v4-flash",
+			Pricing: Pricing{
+				InputPerMtok: coreFloat(0.3),
+				OutputPerMtok: coreFloat(1.2),
+				TimeWindows:  windows,
+			},
+		}); err != nil {
+			t.Fatalf("Upsert: %v", err)
+		}
+
+		overrides, err := store.List(ctx)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(overrides) != 1 {
+			t.Fatalf("len(overrides) = %d, want 1", len(overrides))
+		}
+		got := overrides[0].Pricing.TimeWindows
+		if len(got) != 1 {
+			t.Fatalf("TimeWindows count = %d, want 1", len(got))
+		}
+		if got[0].Label != "off_peak" {
+			t.Fatalf("window label = %q, want off_peak", got[0].Label)
+		}
+		ranges := got[0].UTCRanges
+		if len(ranges) != 2 {
+			t.Fatalf("UTCRanges = %d, want 2", len(ranges))
+		}
+		if len(ranges[0].Days) != 5 {
+			t.Fatalf("range[0] days = %d, want 5", len(ranges[0].Days))
+		}
+		if len(ranges[1].Days) != 2 {
+			t.Fatalf("range[1] days = %d, want 2", len(ranges[1].Days))
+		}
+		if ranges[0].Start != "00:00" || ranges[1].End != "24:00" {
+			t.Fatalf("range bounds = %+v", ranges)
+		}
+		if got[0].Pricing.InputPerMtok == nil || *got[0].Pricing.InputPerMtok != 0.15 {
+			t.Fatalf("window InputPerMtok = %v", got[0].Pricing.InputPerMtok)
 		}
 	})
 }
