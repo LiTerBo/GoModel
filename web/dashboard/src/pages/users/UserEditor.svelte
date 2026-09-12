@@ -8,12 +8,22 @@
   import InlineHelpSection from "$lib/components/molecules/InlineHelpSection.svelte";
   import SearchSelect from "$lib/components/molecules/SearchSelect.svelte";
   import { modelsStore } from "$lib/stores/models.svelte.js";
+  import { virtualModels } from "$pages/models/virtualModels.svelte.js";
   import { usersStore as store } from "./users.svelte.js";
   import { parseModelSelectors } from "$lib/utils/modelSelectors.js";
   import { parentEffectiveModels, previewEffectiveModels, userSelectorOptions } from "./usersLogic.js";
   import * as m from "$lib/paraglide/messages.js";
 
-  const selectorOptions = $derived(userSelectorOptions(modelsStore.models));
+  // The allowlist picker carries the virtual models this path may be
+  // authorized for by name; load them when the dialog opens.
+  const selectorOptions = $derived(
+    userSelectorOptions(modelsStore.models, virtualModels.aliases),
+  );
+  $effect(() => {
+    if (store.formOpen) {
+      void virtualModels.ensureAliasesLoaded();
+    }
+  });
 
   // Warn while typing when the list would leave no model available under the
   // parents' effective access; unknown parents (no catalog) stay silent.

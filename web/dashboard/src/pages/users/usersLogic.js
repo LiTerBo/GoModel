@@ -108,9 +108,13 @@ export function previewEffectiveModels(parentModels, selectors) {
 
 // userSelectorOptions builds the quick-add picker from the shared model
 // inventory: one provider-wide wildcard per provider, then every concrete
-// model selector, both sorted. Options carry the SearchSelect shape.
-export function userSelectorOptions(models) {
-  return modelSelectorOptions(models, (name) => m.model_selectors_provider_all({ name }));
+// model selector, then the virtual models this path may be authorized for by
+// name. Options carry the SearchSelect shape.
+export function userSelectorOptions(models, aliases) {
+  return modelSelectorOptions(models, (name) => m.model_selectors_provider_all({ name }), {
+    aliases,
+    describeAlias: () => m.models_virtual_model(),
+  });
 }
 
 // filterUserNodes applies the toolbar query against the path, description,

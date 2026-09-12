@@ -38,6 +38,7 @@ class VirtualModelsStore {
   modelRenderBatchSize = 75;
   modelsRendering = $state(false);
   #renderGeneration = 0;
+  #aliasesLoaded = false;
   aliasLoading = $state(false);
   // Load failures only; mutation feedback goes through the flash store.
   aliasError = $state("");
@@ -223,6 +224,16 @@ class VirtualModelsStore {
     } finally {
       this.aliasLoading = false;
     }
+  }
+
+  // ensureAliasesLoaded fetches the list at most once for pages that only need
+  // the names (the allowlist pickers on the API Keys and Users pages).
+  async ensureAliasesLoaded() {
+    if (this.#aliasesLoaded || this.aliasLoading) {
+      return;
+    }
+    await this.fetchVirtualModels();
+    this.#aliasesLoaded = true;
   }
 
   // ---- Lookups ----
