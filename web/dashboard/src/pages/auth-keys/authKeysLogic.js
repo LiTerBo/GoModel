@@ -22,9 +22,14 @@ export function parseAuthKeyAllowedModels(value) {
   return parseModelSelectors(value);
 }
 
-// authKeySelectorOptions builds the allowed-models picker from the inventory.
-export function authKeySelectorOptions(models) {
-  return modelSelectorOptions(models, (name) => m.model_selectors_provider_all({ name }));
+// authKeySelectorOptions builds the allowed-models picker from the inventory:
+// provider wildcards and concrete selectors first, then the virtual models the
+// key may be authorized for by name.
+export function authKeySelectorOptions(models, aliases) {
+  return modelSelectorOptions(models, (name) => m.model_selectors_provider_all({ name }), {
+    aliases,
+    describeAlias: () => m.models_virtual_model(),
+  });
 }
 
 // parseAuthKeyLabels splits a comma-separated label string into a trimmed,

@@ -4,11 +4,20 @@
   import FormField from "$lib/components/molecules/FormField.svelte";
   import SearchSelect from "$lib/components/molecules/SearchSelect.svelte";
   import { modelsStore } from "$lib/stores/models.svelte.js";
+  import { virtualModels } from "$pages/models/virtualModels.svelte.js";
   import { authKeysStore as store } from "./authKeys.svelte.js";
   import { authKeySelectorOptions } from "./authKeysLogic.js";
   import * as m from "$lib/paraglide/messages.js";
 
-  const selectorOptions = $derived(authKeySelectorOptions(modelsStore.models));
+  // Same picker as the create dialog, including the virtual models by name.
+  const selectorOptions = $derived(
+    authKeySelectorOptions(modelsStore.models, virtualModels.aliases),
+  );
+  $effect(() => {
+    if (store.allowedModelsEditor.open) {
+      void virtualModels.ensureAliasesLoaded();
+    }
+  });
 </script>
 
 <EditorDialog

@@ -40,17 +40,41 @@ export function formatModelSelectors(selectors) {
 
 // modelSelectorOptions builds SearchSelect options from the shared model
 // inventory: one provider-wide wildcard per provider first, then every
-// concrete selector, both sorted. `describeProvider(name)` supplies the
-// wildcard's description so this module stays free of message imports.
-export function modelSelectorOptions(models, describeProvider = () => "") {
+// concrete selector, both sorted. `options.aliases` appends the virtual models
+// a caller may be authorized for by name (see /features/users): paused or
+// unresolvable ones are left out, names are de-duplicated case-insensitively,
+// and a name that is already listed as a selector is not offered twice.
+// `describeProvider(name)` and `options.describeAlias(name)` supply the
+// descriptions so this module stays free of message imports.
+export function modelSelectorOptions(models, describeProvider = () => "", options = {}) {
   const list = Array.isArray(models) ? models : [];
   const providers = [...new Set(list.map((entry) => entry?.provider_name).filter(Boolean))].sort();
   const selectors = [
     ...new Set(list.map((entry) => entry?.access?.selector || entry?.selector).filter(Boolean)),
   ].sort();
-  return [
+  const result = [
     ...providers.map((name) => ({ value: name + "/*", label: name + "/*", description: describeProvider(name) })),
     ...selectors.map((selector) => ({ value: selector, label: selector, description: "" })),
+  ];
+  const describeAlias = typeof options.describeAlias === "function" ? options.describeAlias : () => "";
+  const taken = new Set(result.map((option) => option.value.toLowerCase()));
+  const virtualModels = [];
+  for (const alias of Array.isArray(options.aliases) ? options.aliases : []) {
+    const entry = typeof alias === "string" ? { name: alias } : alias;
+    if (!entry || typeof entry !== "object" || entry.enabled === false || entry.valid === false) {
+      continue;
+    }
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    const key = name.toLowerCase();
+    if (!name || taken.has(key)) {
+      continue;
+    }
+    taken.add(key);
+    virtualModels.push({ value: name, label: name, description: describeAlias(name) });
+  }
+  return [
+    ...result,
+    ...virtualModels.sort((a, b) => a.value.localeCompare(b.value)),
   ];
 }
 
