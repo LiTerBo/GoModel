@@ -209,7 +209,7 @@ export function availablePricingFieldOptions(rows, row) {
 
 // buildPricingOverridePayload validates the editor rows into a {pricing}
 // payload, or returns {error} on the first problem.
-export function buildPricingOverridePayload(rows, preservedTiers) {
+export function buildPricingOverridePayload(rows, preservedTiers, preservedTimeWindows) {
   const pricing = {};
   const seen = new Set();
   for (const row of Array.isArray(rows) ? rows : []) {
@@ -234,6 +234,10 @@ export function buildPricingOverridePayload(rows, preservedTiers) {
   const tiers = Array.isArray(preservedTiers) ? preservedTiers : [];
   if (tiers.length > 0) {
     pricing.tiers = clonePricing(tiers);
+  }
+  const tw = Array.isArray(preservedTimeWindows) ? preservedTimeWindows : [];
+  if (tw.length > 0) {
+    pricing.time_windows = clonePricing(tw);
   }
   if (Object.keys(pricing).length === 0) {
     return { error: m.models_price_add_field() };

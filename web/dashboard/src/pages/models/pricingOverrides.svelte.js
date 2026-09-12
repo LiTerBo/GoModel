@@ -36,6 +36,7 @@ class PricingOverridesStore {
   modelPricingOverrideFormBasePricing = $state(null);
   modelPricingOverrideFormBasePricingSources = $state(null);
   modelPricingOverrideFormPreservedTiers = $state([]);
+  modelPricingOverrideFormTimeWindows = $state([]);
   modelPricingOverrideRows = $state([]);
   modelPricingOverrideForm = $state({ selector: "" });
   _modelPricingOverrideRowID = 0;
@@ -180,9 +181,14 @@ class PricingOverridesStore {
       override && override.pricing && Array.isArray(override.pricing.tiers)
         ? clonePricing(override.pricing.tiers)
         : [];
+    this.modelPricingOverrideFormTimeWindows =
+      override && override.pricing && Array.isArray(override.pricing.time_windows)
+        ? clonePricing(override.pricing.time_windows)
+        : [];
     if (
       this.modelPricingOverrideRows.length === 0 &&
-      this.modelPricingOverrideFormPreservedTiers.length === 0
+      this.modelPricingOverrideFormPreservedTiers.length === 0 &&
+      this.modelPricingOverrideFormTimeWindows.length === 0
     ) {
       this.addModelPricingOverrideRow();
     }
@@ -238,10 +244,41 @@ class PricingOverridesStore {
     }
   }
 
+  addTimeWindow() {
+    this.modelPricingOverrideFormTimeWindows.push({
+      label: "",
+      utc_ranges: [{ days: ["mon"], start: "00:00", end: "01:00" }],
+      pricing: { input_per_mtok: null, output_per_mtok: null, cached_input_per_mtok: null },
+    });
+  }
+
+  removeTimeWindow(index) {
+    this.modelPricingOverrideFormTimeWindows = this.modelPricingOverrideFormTimeWindows.filter(
+      (_, i) => i !== index,
+    );
+  }
+
+  addTimeRange(window) {
+    window.utc_ranges.push({ days: ["mon"], start: "00:00", end: "01:00" });
+  }
+
+  removeTimeRange(window, index) {
+    window.utc_ranges = window.utc_ranges.filter((_, i) => i !== index);
+  }
+
+  toggleTimeRangeDay(range, day) {
+    if (range.days.includes(day)) {
+      range.days = range.days.filter((d) => d !== day);
+    } else {
+      range.days = [...range.days, day];
+    }
+  }
+
   modelPricingOverridePayload() {
     return buildPricingOverridePayload(
       this.modelPricingOverrideRows,
       this.modelPricingOverrideFormPreservedTiers,
+      this.modelPricingOverrideFormTimeWindows,
     );
   }
 
@@ -270,6 +307,7 @@ class PricingOverridesStore {
     this.modelPricingOverrideFormBasePricing = null;
     this.modelPricingOverrideFormBasePricingSources = null;
     this.modelPricingOverrideFormPreservedTiers = [];
+    this.modelPricingOverrideFormTimeWindows = [];
     this.modelPricingOverrideRows = [];
     this.modelPricingOverrideForm = { selector: "" };
   }

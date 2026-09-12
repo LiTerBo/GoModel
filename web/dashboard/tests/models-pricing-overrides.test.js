@@ -105,3 +105,33 @@ test("payload parses valid rows into a selector-ready pricing patch", () => {
     pricing: { input_per_mtok: 1.25 },
   });
 });
+
+test("payload preserves time_windows when present", () => {
+  const tw = [
+    {
+      label: "off_peak",
+      utc_ranges: [{ days: ["mon"], start: "00:00", end: "01:00" }],
+      pricing: { input_per_mtok: 0.15, output_per_mtok: 0.6 },
+    },
+  ];
+  assert.deepEqual(buildPricingOverridePayload([], [], tw), {
+    pricing: { time_windows: tw },
+  });
+});
+
+test("payload includes time_windows alongside scalar rows", () => {
+  const tw = [{ label: "off_peak", utc_ranges: [{ days: ["sat", "sun"], start: "00:00", end: "24:00" }], pricing: { input_per_mtok: 0.1 } }];
+  assert.deepEqual(
+    buildPricingOverridePayload([{ id: "1", field: "input_per_mtok", value: "0.3" }], [], tw),
+    {
+      pricing: { input_per_mtok: 0.3, time_windows: tw },
+    },
+  );
+});
+
+test("payload deep-copies time_windows so caller mutations don't leak back", () => {
+  const tw = [{ label: "off_peak", utc_ranges: [{ days: ["mon"], start: "00:00", end: "01:00" }], pricing: { input_per_mtok: 0.15 } }];
+  const result = buildPricingOverridePayload([], [], tw);
+  result.pricing.time_windows[0].label = "mutated";
+  assert.equal(tw[0].label, "off_peak");
+});
