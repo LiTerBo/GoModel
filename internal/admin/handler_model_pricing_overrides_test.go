@@ -181,3 +181,116 @@ func TestUpsertModelPricingOverrideReturnsBadRequestForValidationErrors(t *testi
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
+
+func TestUpsertModelPricingOverrideWithTimeWindows(t *testing.T) {
+	service := newModelPricingOverrideService(t, newModelPricingOverrideTestStore())
+	h := NewHandler(nil, nil, WithPricingOverrides(service))
+	e := echo.New()
+	h.RegisterRoutes(e.Group("/admin"))
+
+	payload := `{
+		"selector":"deepseek/deepseek-v4-flash",
+		"pricing":{
+			"input_per_mtok":0.44,
+			"output_per_mtok":1.32,
+			"time_windows":[
+				{
+					"label":"off_peak",
+					"utc_ranges":[
+						{"days":["mon","tue","wed","thu","fri"],"start":"00:00","end":"01:00"},
+						{"days":["sat","sun"],"start":"00:00","end":"24:00"}
+					],
+					"pricing":{
+						"input_per_mtok":0.22,
+						"output_per_mtok":0.66
+					}
+				}
+			]
+		}
+	}`
+	putReq := httptest.NewRequest(http.MethodPut, "/admin/model-pricing-overrides", bytes.NewBufferString(payload))
+	putReq.Header.Set("Content-Type", "application/json")
+	putRec := httptest.NewRecorder()
+	e.ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("put status = %d, want 200 body=%s", putRec.Code, putRec.Body.String())
+	}
+
+	var putBody pricingoverrides.View
+	if err := json.Unmarshal(putRec.Body.Bytes(), &putBody); err != nil {
+		t.Fatalf("decode upsert response: %v", err)
+	}
+	windows := putBody.Pricing.TimeWindows
+	if len(windows) != 1 {
+		t.Fatalf("put TimeWindows = %d, want 1", len(windows))
+	}
+	w := windows[0]
+	if w.Label != "off_peak" || len(w.UTCRanges) != 2 {
+		t.Fatalf("put window = %+v", w)
+	}
+	if w.UTCRanges[0].Start != "00:00" || w.UTCRanges[1].End != "24:00" {
+		t.Fatalf("put ranges = %+v", w.UTCRanges)
+	}
+	if w.UTCRanges[0].Days[0] != "mon" {
+		t.Fatalf("put days = %v", w.UTCRanges[0].Days)
+	}
+	if w.Pricing.InputPerMtok == nil || *w.Pricing.InputPerMtok != 0.22 ||
+		w.Pricing.OutputPerMtok == nil || *w.Pricing.OutputPerMtok != 0.66 {
+		t.Fatalf("put window rates = %+v", w.Pricing)
+	}
+
+	// List endpoint round-trips windows too.
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/model-pricing-overrides", nil)
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200", listRec.Code)
+	}
+	var listBody []pricingoverrides.View
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listBody) != 1 {
+		t.Fatalf("list length = %d, want 1", len(listBody))
+	}
+	lw := listBody[0].Pricing.TimeWindows
+	if len(lw) != 1 || lw[0].Label != "off_peak" || len(lw[0].UTCRanges) != 2 {
+		t.Fatalf("list TimeWindows = %+v", lw)
+	}
+}
+
+func TestUpsertModelPricingOverrideRejectsInvalidTimeWindows(t *testing.T) {
+	service := newModelPricingOverrideService(t, newModelPricingOverrideTestStore())
+	e := echo.New()
+	h := NewHandler(nil, nil, WithPricingOverrides(service))
+	h.RegisterRoutes(e.Group("/admin"))
+
+	for name, bad := range map[string]string{
+		"missing label": `{
+			"selector":"deepseek/deepseek-v4-flash",
+			"pricing":{"time_windows":[{"utc_ranges":[{"start":"00:00","end":"24:00"}],"pricing":{"input_per_mtok":0.1}}]}
+		}`,
+		"bad clock": `{
+			"selector":"deepseek/deepseek-v4-flash",
+			"pricing":{"time_windows":[{"label":"off_peak","utc_ranges":[{"start":"25:00","end":"24:00"}],"pricing":{"input_per_mtok":0.1}}]}
+		}`,
+		"foreign weekday": `{
+			"selector":"deepseek/deepseek-v4-flash",
+			"pricing":{"time_windows":[{"label":"off_peak","utc_ranges":[{"days":["tues"],"start":"00:00","end":"24:00"}],"pricing":{"input_per_mtok":0.1}}]}
+		}`,
+		"empty rates": `{
+			"selector":"deepseek/deepseek-v4-flash",
+			"pricing":{"time_windows":[{"label":"off_peak","utc_ranges":[{"start":"00:00","end":"24:00"}],"pricing":{}}]}
+		}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPut, "/admin/model-pricing-overrides", bytes.NewBufferString(bad))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

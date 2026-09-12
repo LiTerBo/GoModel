@@ -35,6 +35,11 @@ func clonePricing(p Pricing) Pricing {
 	} else {
 		out.Tiers = nil
 	}
+	if len(p.TimeWindows) > 0 {
+		out.TimeWindows = core.CloneModelPricingTimeWindows(p.TimeWindows)
+	} else {
+		out.TimeWindows = nil
+	}
 	return out
 }
 
@@ -57,7 +62,7 @@ func pricingEmpty(p Pricing) bool {
 		p.PerPage != nil {
 		return false
 	}
-	return len(p.Tiers) == 0
+	return len(p.Tiers) == 0 && len(p.TimeWindows) == 0
 }
 
 func overrideClone(override Override) Override {
@@ -104,6 +109,9 @@ func pricingToCore(p Pricing) *core.ModelPricing {
 			}
 		}
 	}
+	if len(p.TimeWindows) > 0 {
+		out.TimeWindows = core.CloneModelPricingTimeWindows(p.TimeWindows)
+	}
 	return out
 }
 
@@ -136,9 +144,15 @@ func mergePricing(base *core.ModelPricing, override Pricing) *core.ModelPricing 
 	if len(overlay.Tiers) > 0 {
 		out.Tiers = overlay.Tiers
 	}
-	// An operator's rate replaces the catalog's base price and any catalog
-	// time-window discount published against it.
-	out.DropTimeWindowRatesOverriddenBy(overlay)
+	// An operator-supplied time window replaces the catalog's windows outright.
+	// Otherwise the operator's scalar rates override the catalog's base prices
+	// and the same-named window rates are dropped so an operator's price is not
+	// undercut by a catalog discount published against a different base.
+	if len(overlay.TimeWindows) > 0 {
+		out.TimeWindows = core.CloneModelPricingTimeWindows(overlay.TimeWindows)
+	} else {
+		out.DropTimeWindowRatesOverriddenBy(overlay)
+	}
 	return out
 }
 

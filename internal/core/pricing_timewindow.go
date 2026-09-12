@@ -218,6 +218,28 @@ func (p *ModelPricing) DropTimeWindowRatesOverriddenBy(override *ModelPricing) {
 	p.TimeWindows = kept
 }
 
+// CloneModelPricingTimeWindows returns a deep copy of the window slice so
+// callers outside core can safely mutate the result without affecting the
+// original. When input is empty or nil, nil is returned.
+func CloneModelPricingTimeWindows(windows []ModelPricingTimeWindow) []ModelPricingTimeWindow {
+	return cloneTimeWindows(windows)
+}
+
+// ParseClockMinutes exposes the strict "HH:MM" parser to callers outside core
+// for validation. It returns the number of minutes since midnight and whether
+// the input was valid: hours 00-24, minutes 00-59, "24:00" accepted only as an
+// end-of-day bound.
+func ParseClockMinutes(value string) (int, bool) {
+	return parseClockMinutes(value)
+}
+
+// ParseWeekday exposes the weekday parser to callers outside core for
+// validation. It accepts "mon".."sun" (and full English names) case-insensitively
+// and reports whether the input was a valid weekday name.
+func ParseWeekday(name string) (time.Weekday, bool) {
+	return parseWeekday(name)
+}
+
 func cloneTimeWindows(windows []ModelPricingTimeWindow) []ModelPricingTimeWindow {
 	if len(windows) == 0 {
 		return nil

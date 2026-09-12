@@ -3,6 +3,7 @@ package pricingoverrides
 import (
 	"time"
 
+	"github.com/enterpilot/gomodel/internal/core"
 	"github.com/enterpilot/gomodel/internal/modelselectors"
 )
 
@@ -28,6 +29,10 @@ type Pricing struct {
 	PerRequest             *float64      `json:"per_request,omitempty" bson:"per_request,omitempty"`
 	PerPage                *float64      `json:"per_page,omitempty" bson:"per_page,omitempty"`
 	Tiers                  []PricingTier `json:"tiers,omitempty" bson:"tiers,omitempty"`
+	// TimeWindows carry rates that replace the base prices during recurring
+	// UTC windows (see core.ModelPricingTimeWindow) — DeepSeek's off-peak
+	// hours, for example. The base prices stay the standard (peak) rates.
+	TimeWindows []core.ModelPricingTimeWindow `json:"time_windows,omitempty" bson:"time_windows,omitempty"`
 }
 
 // PricingTier stores future tiered pricing without changing the DB schema.
