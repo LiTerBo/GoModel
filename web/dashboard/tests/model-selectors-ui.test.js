@@ -21,10 +21,17 @@ for (const [path, builder, openFlag] of EDITORS) {
     const src = await read(path);
 
     assert.match(src, /\$pages\/models\/virtualModels\.svelte\.js/);
-    assert.match(src, new RegExp(`${builder}\\(\\s*modelsStore\\.models,\\s*virtualModels\\.aliases,?\\s*\\)`));
-    // The list is fetched lazily, when the dialog is actually opened.
-    assert.match(src, /if \(/);
-    assert.match(src, new RegExp(openFlag.replace(/\./g, "\\.")));
+    // The builder receives the alias list, e.g.
+    //   authKeySelectorOptions(modelsStore.models, virtualModels.aliases)
+    assert.ok(
+      src.includes(`${builder}(modelsStore.models, virtualModels.aliases)`),
+      `${builder} receives virtualModels.aliases`,
+    );
+    // Lazy: the alias list is only fetched once the dialog is opened.
+    assert.ok(
+      src.includes(`if (${openFlag})`),
+      `the alias load is guarded by ${openFlag}`,
+    );
     assert.match(src, /virtualModels\.ensureAliasesLoaded\(\)/);
   });
 }
