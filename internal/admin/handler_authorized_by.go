@@ -51,6 +51,19 @@ type authorizedByResponse struct {
 // AuthorizedByVirtualModel reports the credentials and user paths a virtual
 // model reaches. With new_targets it reports the effect of a proposed edit
 // instead of the stored definition.
+//
+// @Summary      Report who a virtual model reaches, optionally against a proposed target list
+// @Tags         admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        source      query     string  true   "Virtual model source (alias name)"
+// @Param        new_targets query     string  false  "Comma-separated proposed targets (provider/model); defaults to the stored ones"
+// @Success      200         {object}  authorizedByResponse
+// @Failure      400         {object}  core.GatewayError
+// @Failure      401         {object}  core.GatewayError
+// @Failure      404         {object}  core.GatewayError
+// @Failure      503         {object}  core.GatewayError
+// @Router       /admin/virtual-models/authorized-by [get]
 func (h *Handler) AuthorizedByVirtualModel(c *echo.Context) error {
 	if h.virtualModels == nil {
 		return handleError(c, featureUnavailableError("virtual models feature is unavailable"))
@@ -78,7 +91,10 @@ func (h *Handler) AuthorizedByVirtualModel(c *echo.Context) error {
 	return c.JSON(http.StatusOK, h.authorizedByResponse(vm, current, proposed))
 }
 
-func (h *Handler) authorizedByResponse(vm *virtualmodels.VirtualModel, current, proposed []core.ModelSelector) authorizedByResponse {
+// collectAuthorizedBy lists the credentials and user paths the virtual model
+// reaches, ordered by how much attention each verdict deserves: holders that
+// silently follow the name first, then the ones a change may add or remove.
+func (h *Handler) collectAuthorizedBy(vm *virtualmodels.VirtualModel, current, proposed []core.ModelSelector) []authorizedByGrant {
 	grants := make([]authorizedByGrant, 0, 4)
 	if h.authKeys != nil {
 		// Every key is listed, including deactivated ones: the operator wants to
@@ -135,6 +151,29 @@ func (h *Handler) authorizedByResponse(vm *virtualmodels.VirtualModel, current, 
 		}
 		return grants[i].Label < grants[j].Label
 	})
+
+	return grants
+}
+
+// virtualModelUsage returns the policy holders a delete would take the virtual
+// model away from.
+func (h *Handler) virtualModelUsage(vm *virtualmodels.VirtualModel) []authorizedByGrant {
+	targets := targetSelectors(vm.Targets)
+	return h.collectAuthorizedBy(vm, targets, targets)
+}
+
+func countGrantKind(grants []authorizedByGrant, kind string) int {
+	count := 0
+	for _, grant := range grants {
+		if grant.Kind == kind {
+			count++
+		}
+	}
+	return count
+}
+
+func (h *Handler) authorizedByResponse(vm *virtualmodels.VirtualModel, current, proposed []core.ModelSelector) authorizedByResponse {
+	grants := h.collectAuthorizedBy(vm, current, proposed)
 
 	summary := authorizedBySummary{}
 	for _, grant := range grants {

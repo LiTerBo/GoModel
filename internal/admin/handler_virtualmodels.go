@@ -60,6 +60,9 @@ type virtualModelTargetRequest struct {
 
 type deleteVirtualModelRequest struct {
 	Source string `json:"source"`
+	// Force overrides the reachability guard: deleting a virtual model that
+	// credentials or user paths still reach takes it away from them.
+	Force bool `json:"force,omitempty"`
 }
 
 // ListVirtualModels handles GET /admin/virtual-models.
@@ -97,6 +100,7 @@ func (h *Handler) ListVirtualModels(c *echo.Context) error {
 // @Success      204            "No-op access policy removed"
 // @Failure      400            {object}  core.GatewayError
 // @Failure      401            {object}  core.GatewayError
+// @Failure      409            {object}  core.GatewayError  "Virtual model is locked: send an explicit unlock with the change"
 // @Failure      502            {object}  core.GatewayError
 // @Failure      503            {object}  core.GatewayError
 // @Router       /admin/virtual-models [put]
@@ -149,6 +153,7 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 // @Failure      400       {object}  core.GatewayError
 // @Failure      401       {object}  core.GatewayError
 // @Failure      404       {object}  core.GatewayError
+// @Failure      409       {object}  core.GatewayError  "Credentials or user paths still reach the virtual model: send force to delete it"
 // @Failure      502       {object}  core.GatewayError
 // @Failure      503       {object}  core.GatewayError
 // @Router       /admin/virtual-models [delete]
@@ -164,6 +169,20 @@ func (h *Handler) DeleteVirtualModel(c *echo.Context) error {
 	source := strings.TrimSpace(req.Source)
 	if source == "" {
 		return handleError(c, core.NewInvalidRequestError("source is required", nil))
+	}
+
+	stored, ok := h.virtualModels.Get(source)
+	if !ok || stored == nil {
+		return handleError(c, core.NewNotFoundError("virtual model not found: "+source))
+	}
+	if !req.Force {
+		if used := h.virtualModelUsage(stored); len(used) > 0 {
+			return handleError(c, virtualModelInUseError(
+				stored.Source,
+				countGrantKind(used, "credential"),
+				countGrantKind(used, "user_path"),
+			))
+		}
 	}
 
 	if err := h.virtualModels.Delete(c.Request().Context(), source); err != nil {
