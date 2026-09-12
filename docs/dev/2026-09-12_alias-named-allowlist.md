@@ -1,9 +1,9 @@
 # API 密钥按「模型名（别名）」授权 —— 需求 + 设计 + 任务清单
 
 > 日期：2026-09-12
-> 类型：后端鉴权语义增强（语义改动 1 处；前端 0 改动、无新 API、无存储变更）
-> 状态：**后端已实施**（分支 `feat/alias-named-allowlist`；issue [#36](https://github.com/LiTerBo/GoModel/issues/36)）
-> 变更规模：12 个文件 +207/−19，新增 5 个测试文件 + 1 个服务端用例
+> 类型：鉴权语义增强（语义改动 1 处、无新 API、无存储变更）+ 仪表盘可选清单收口
+> 状态：**后端已合并**（PR [#38](https://github.com/LiTerBo/GoModel/pull/38) squash → `main bd371abf`；issue [#36](https://github.com/LiTerBo/GoModel/issues/36) 已 CLOSED）；**前端清单随后续 PR 收口**
+> 变更规模：后端 16 个文件 +494/−20（含 5 个新测试文件与 1 个服务端用例）；前端 6 个文件 + 2 个测试文件
 
 ## 1. 背景与痛点
 
@@ -63,6 +63,19 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 | D5 | 无白名单 + 无 userPath 的早返回提到函数最前 | 该函数在请求路径上对每个候选 selector 调用；抽出的 `allowsModel` 不做闭包，避免每次调用一次堆分配 |
 | D6 | 元数据只归 `owned_by`/`created` | 能力/定价归一需要独立规则，本次不做（§6） |
 
+### 3.6 前端可选清单（T11）
+
+清单由 `web/dashboard/src/lib/utils/modelSelectors.js#modelSelectorOptions` 统一构造，三个使用点：创建密钥（`AuthKeyEditor.svelte`）、编辑密钥白名单（`AuthKeyAllowedModelsEditor.svelte`）、用户路径（`UserEditor.svelte`）。
+
+| # | 决策 | 理由 |
+| --- | --- | --- |
+| P1 | 别名**追加在具体选择器之后**（供应商通配 → 具体选择器 → 虚拟模型，各自有序） | 保持既有清单顺序不变，老用户肌肉记忆不受影响；清单可搜索/可直接输入 |
+| P2 | 只列出 `enabled !== false && valid !== false` 的别名 | 与模型页「可展示」口径一致；暂停/解析不通过的别名仍可手输（字段本身 `allowCustom`） |
+| P3 | 描述文字复用既有 i18n 键 `models_virtual_model`（"Virtual model"/"虚拟模型"） | 不新增键，双语目录 key 集不变、无未引用键 |
+| P4 | 名字去重（大小写不敏感、先到先得），与具体选择器同名时只保留一条 | 别名名与具体选择器同名时语义等价（按名字即可命中），不重复列出 |
+| P5 | 别名清单**懒加载**：仅当对话框打开时才拉一次 `/admin/virtual-models`（`virtualModels.ensureAliasesLoaded()`，一次性） | API 密钥/用户页原本不请求该接口；避免无谓请求，也不影响模型页既有加载逻辑 |
+| P6 | 文案同步：`api_keys_allowed_models_help`、`users_allowed_models_help` 在 en/zh-CN 双目录加入「虚拟模型（smart）」 | 帮助文案原本只说「供应商/模型」，与新语义不一致 |
+
 ## 4. 任务清单
 
 - [x] T1 语义核心：`internal/users/selectors.go` 新增 `MatchesName`；`internal/users/service.go` 改层内 OR / 层间 AND + 热路径早返回
@@ -75,7 +88,7 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 - [x] T8 端到端：临时实例（独立端口 + 独立缓存目录）+ mock 上游 + 临时 key，验证 §2 的 3 条验收标准
 - [x] T9 文档：本文件 + `docs/features/users.mdx`、`docs/config-manual.md`、`docs/advanced/admin-endpoints.mdx` 语义反转
 - [x] T10 登记：issue #36
-- [ ] T11 前端：`admin/dashboard/auth-keys` 与 Users 页可选清单加入虚拟模型（后端能力已就绪）
+- [x] T11 前端：`admin/dashboard/auth-keys`（创建 + 编辑允许模型）与 Users 页的可选清单按名称列出可授权的虚拟模型（详见 §3.6）
 - [ ] T12 admin `effective_models` 反映名字授权（否则 key 行显示与真实授权不自洽）
 - [ ] T13 别名演进护栏：改指向时提示影响面 / 可选锁定目标集合（对应 D2 的代价）
 - [ ] T14 上游失败错误文本归一化（`model_access_denied` 的 message 目前直接透传上游形态）
@@ -87,7 +100,9 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 `TestMatchesName`、`TestService_AllowsModelByRequestedName`、`TestExposedModels_AuthorizedNameAliasOnly`、`TestExposedModels_NoSiblingLeakByName`、`TestRequestedModelNameContext`、`TestListModels_AliasNamedAllowlistSeesOnlyThatAlias`
 
 **受影响包**：`core / users / virtualmodels / server / gateway / admin / authkeys` 全部 `ok`。
-**全量门禁**：`go test ./... -count=1` → 99 包 ok；唯一 FAIL `tests/perf/TestHotPathPerfGuard` 在改动前的树上（`git stash -u`）数字**逐项相同**（94/92、114/103、116/104、105/103、175/161）→ 既有基线失败。
+**全量门禁**：`go test ./... -count=1` → 99 包 ok；唯一 FAIL `tests/perf/TestHotPathPerfGuard` 在改动前的树上（`git stash -u`）数字**逐项相同**（94/92、114/103、116/104、105/103、175/161）→ 既有失败（另见 issue [#37](https://github.com/LiTerBo/GoModel/issues/37)）。
+
+**仪表盘门禁**（T11）：`npm test` → 766/766 通过（基线 754，新增 12：`tests/model-selectors.test.js` 6 条纯函数 + `tests/model-selectors-ui.test.js` 6 条源契约）；`npm run check`（svelte-check）→ 0 errors 0 warnings；`npm run build`（vite）→ 成功。
 
 **端到端**（临时实例 18081 + mock 上游 18099 + 临时 key，非生产库）：
 
