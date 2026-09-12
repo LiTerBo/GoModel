@@ -145,7 +145,10 @@ func (h *Handler) userCatalog() []core.ModelSelector {
 // effectiveModels evaluates the catalog for a request carrying ctx (user path
 // and, for a key, its allowlist) through the virtual-models authorizer when
 // wired (model-side rows plus user policies), falling back to the user
-// policies alone. Nil without a catalog or any authorizer.
+// policies alone. Virtual models the same ctx may address — by name, or
+// because a target-level entry covers them — are appended after the concrete
+// models through the exposure the models endpoint uses, so a row lists what a
+// request can actually call. Nil without a catalog or any authorizer.
 func (h *Handler) effectiveModels(ctx context.Context, catalog []core.ModelSelector) []string {
 	if catalog == nil {
 		return nil
@@ -160,10 +163,35 @@ func (h *Handler) effectiveModels(ctx context.Context, catalog []core.ModelSelec
 		return nil
 	}
 	result := make([]string, 0, len(catalog))
+	seen := make(map[string]struct{}, len(catalog))
+	appendName := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
 	for _, selector := range catalog {
 		if allows(ctx, selector) {
-			result = append(result, selector.QualifiedModel())
+			appendName(selector.QualifiedModel())
 		}
+	}
+	if h.virtualModels == nil {
+		return result
+	}
+	// An alias is addressed by name, so its concrete targets need not be
+	// permitted for the credential to see it; probing the same authorizer with
+	// a name-only selector mirrors GET /v1/models.
+	allow := func(selector core.ModelSelector) bool { return allows(ctx, selector) }
+	allowName := func(name string) bool {
+		return name != "" && allows(ctx, core.ModelSelector{Model: name})
+	}
+	for _, model := range h.virtualModels.ExposedModelsForUserPathNamed(core.UserPathFromContext(ctx), allow, allowName) {
+		appendName(model.ID)
 	}
 	return result
 }
