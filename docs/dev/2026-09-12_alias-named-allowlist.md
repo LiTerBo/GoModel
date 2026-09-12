@@ -76,6 +76,22 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 | P5 | 别名清单**懒加载**：仅当对话框打开时才拉一次 `/admin/virtual-models`（`virtualModels.ensureAliasesLoaded()`，一次性） | API 密钥/用户页原本不请求该接口；避免无谓请求，也不影响模型页既有加载逻辑 |
 | P6 | 文案同步：`api_keys_allowed_models_help`、`users_allowed_models_help` 在 en/zh-CN 双目录加入「虚拟模型（smart）」 | 帮助文案原本只说「供应商/模型」，与新语义不一致 |
 
+### 3.7 `effective_models` 与 `/v1/models` 同口径（T12）
+
+- **背景**：`internal/admin/handler_users.go#effectiveModels` 原本只遍历**具体模型目录**并对每个 selector 问一次 authorizer，因此白名单写别名名时输出 `[]` —— 与 `/v1/models` 为该凭证返回的可见集合矛盾（现场：`hms key`）。
+- **决策（A + 同步，2026-09-12 用户裁决）**：`effective_models` 定义为「该凭证/路径实际可调用的模型集合」，即等价于同 ctx 下 `GET /v1/models` 的结果；**密钥行与 Users 行共用同一 helper**（不拆函数）。
+  - 已知并接受的代价：老 key（如 `openai/`）的输出会**新增**它通过叶子规则暴露的别名名 → 列表数量变化。
+  - 备选 B（只补按名授权、老 key 一字不变）被否：会让该列与 `/v1/models` 长期不一致；备选 C（只在前端加提示）不解决 API 自洽。
+- **实现**：具体目录遍历后追加一次暴露计算，两个谓词与 models 端点逐字一致：
+
+  | 谓词 | 实现 | 覆盖的白名单形态 |
+  | --- | --- | --- |
+  | `allow(selector)` | `authorizer.AllowsModel(ctx, selector)` | 目标级：`/`、`provider/`、`provider/model` |
+  | `allowName(name)` | `authorizer.AllowsModel(ctx, core.ModelSelector{Model: name})` | 名字级：别名名（名字形 selector 走既有匹配，与 models 端点同一探针） |
+
+  暴露集合由 `ExposedModelsForUserPathNamed(userPath, allow, allowName)` 给出 → 天然继承 `enabled`、`user_paths` 作用域与「叶子可解析」三条既有约束；名字去重后**追加在具体模型之后**（与 `/v1/models` 的合并顺序一致）。
+- **正向副作用**：Users 编辑器里 `previewEffectiveModels` 的「没有任何模型可选」告警不再对别名误报。
+
 ## 4. 任务清单
 
 - [x] T1 语义核心：`internal/users/selectors.go` 新增 `MatchesName`；`internal/users/service.go` 改层内 OR / 层间 AND + 热路径早返回
@@ -89,7 +105,7 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 - [x] T9 文档：本文件 + `docs/features/users.mdx`、`docs/config-manual.md`、`docs/advanced/admin-endpoints.mdx` 语义反转
 - [x] T10 登记：issue #36
 - [x] T11 前端：`admin/dashboard/auth-keys`（创建 + 编辑允许模型）与 Users 页的可选清单按名称列出可授权的虚拟模型（详见 §3.6）
-- [ ] T12 admin `effective_models` 反映名字授权（否则 key 行显示与真实授权不自洽）
+- [x] T12 admin `effective_models` 与 `/v1/models` 同口径：追加按名授权与目标级覆盖的虚拟模型，密钥行与 Users 行共用同一 helper（详见 §3.7）
 - [ ] T13 别名演进护栏：改指向时提示影响面 / 可选锁定目标集合（对应 D2 的代价）
 - [ ] T14 上游失败错误文本归一化（`model_access_denied` 的 message 目前直接透传上游形态）
 
@@ -103,6 +119,8 @@ API 密钥的 `allowed_models` 按**解析后的目标 selector** 判定，带�
 **全量门禁**：`go test ./... -count=1` → 99 包 ok；唯一 FAIL `tests/perf/TestHotPathPerfGuard` 在改动前的树上（`git stash -u`）数字**逐项相同**（94/92、114/103、116/104、105/103、175/161）→ 既有失败（另见 issue [#37](https://github.com/LiTerBo/GoModel/issues/37)）。
 
 **仪表盘门禁**（T11）：`npm test` → 766/766 通过（基线 754，新增 12：`tests/model-selectors.test.js` 6 条纯函数 + `tests/model-selectors-ui.test.js` 6 条源契约）；`npm run check`（svelte-check）→ 0 errors 0 warnings；`npm run build`（vite）→ 成功。
+
+**T12 证据**：`internal/admin` 新增 3 条用例（`TestListAuthKeysEffectiveModelsIncludeNamedAlias`、`TestListAuthKeysEffectiveModelsSkipPausedAndScopedAliases`、`TestUsersTreeEffectiveModelsIncludeNamedAlias`）在实现前**全红**（`effective_models: []`，复现现场），实现后绿；`internal/admin` 包全量 `ok`，原有 `TestListAuthKeysReportsEffectiveModels` / `TestUsersTreeReportsEffectiveModels` 无回归。
 
 **端到端**（临时实例 18081 + mock 上游 18099 + 临时 key，非生产库）：
 
