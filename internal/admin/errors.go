@@ -37,6 +37,13 @@ func featureUnavailableError(message string) error {
 		WithCode("feature_unavailable")
 }
 
+// lockedVirtualModelError reports a write rejected because the virtual model is
+// locked: the caller has to send an explicit unlock in the same request.
+func lockedVirtualModelError(message string) error {
+	return core.NewInvalidRequestErrorWithStatus(http.StatusConflict, message, nil).
+		WithCode("virtual_model_locked")
+}
+
 func quotaTemplatesUnavailableError() error {
 	return core.NewInvalidRequestErrorWithStatus(
 		http.StatusForbidden,

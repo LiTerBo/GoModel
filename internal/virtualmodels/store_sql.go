@@ -30,6 +30,7 @@ var sqlSchema = []string{
 		description TEXT NOT NULL DEFAULT '',
 		slowdown DOUBLE PRECISION DEFAULT NULL,
 		enabled ` + sqlx.TypeBool + ` NOT NULL DEFAULT TRUE,
+		locked ` + sqlx.TypeBool + ` NOT NULL DEFAULT FALSE,
 		created_at ` + sqlx.TypeInt64 + ` NOT NULL,
 		updated_at ` + sqlx.TypeInt64 + ` NOT NULL
 	)`,
@@ -46,19 +47,20 @@ var virtualModelMigrations = []string{
 	"ALTER TABLE virtual_models ADD COLUMN failover TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE virtual_models ADD COLUMN strategy_plugin TEXT NOT NULL DEFAULT ''",
 	"ALTER TABLE virtual_models ADD COLUMN strategy_config TEXT NOT NULL DEFAULT '{}'",
+	"ALTER TABLE virtual_models ADD COLUMN locked " + sqlx.TypeBool + " NOT NULL DEFAULT FALSE",
 }
 
 const selectVirtualModelColumns = `
 	SELECT source, targets, strategy, strategy_plugin, strategy_config, session_affinity, failover, provider_name, model, user_paths,
-		description, slowdown, enabled, created_at, updated_at
+		description, slowdown, enabled, locked, created_at, updated_at
 	FROM virtual_models
 `
 
 const upsertVirtualModelSQL = `
 	INSERT INTO virtual_models (
-		source, targets, strategy, strategy_plugin, strategy_config, session_affinity, failover, provider_name, model, user_paths, description, slowdown, enabled, created_at, updated_at
+		source, targets, strategy, strategy_plugin, strategy_config, session_affinity, failover, provider_name, model, user_paths, description, slowdown, enabled, locked, created_at, updated_at
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(source) DO UPDATE SET
 		targets = excluded.targets,
 		strategy = excluded.strategy,
@@ -72,6 +74,7 @@ const upsertVirtualModelSQL = `
 		description = excluded.description,
 		slowdown = excluded.slowdown,
 		enabled = excluded.enabled,
+		locked = excluded.locked,
 		updated_at = excluded.updated_at
 `
 
@@ -177,6 +180,7 @@ func virtualModelUpsertArgs(vm VirtualModel) ([]any, error) {
 		vm.Description,
 		vm.Slowdown,
 		vm.Enabled,
+		vm.Locked,
 		vm.CreatedAt.Unix(),
 		vm.UpdatedAt.Unix(),
 	}, nil
@@ -201,6 +205,7 @@ func scanSQLVirtualModel(scanner sqlx.Row) (VirtualModel, error) {
 		&vm.Description,
 		&vm.Slowdown,
 		&vm.Enabled,
+		&vm.Locked,
 		&createdAt,
 		&updatedAt,
 	); err != nil {

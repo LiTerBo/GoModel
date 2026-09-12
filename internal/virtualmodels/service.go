@@ -307,6 +307,7 @@ func (s *Service) ListViews() []View {
 			Description:     vm.Description,
 			Slowdown:        vm.Slowdown,
 			Enabled:         vm.Enabled,
+			Locked:          vm.Locked,
 			Managed:         vm.Managed,
 			CreatedAt:       vm.CreatedAt,
 			UpdatedAt:       vm.UpdatedAt,
@@ -797,6 +798,25 @@ func (s *Service) ResolveUpsertEnabled(source, oldSource string, requested *bool
 		}
 	}
 	return true
+}
+
+// ResolveUpsertLocked returns the lock state a write should store: the value the
+// caller sent when it sent one, otherwise the state already stored for the row
+// (or for its pre-rename source), so an edit that says nothing about the lock
+// cannot silently clear it.
+func (s *Service) ResolveUpsertLocked(source, oldSource string, requested *bool) bool {
+	if requested != nil {
+		return *requested
+	}
+	if existing, ok := s.Get(source); ok && existing != nil {
+		return existing.Locked
+	}
+	if old := strings.TrimSpace(oldSource); old != "" {
+		if existing, ok := s.Get(old); ok && existing != nil {
+			return existing.Locked
+		}
+	}
+	return false
 }
 
 // Compile-time check that *Service satisfies the resolver, user-path resolver,

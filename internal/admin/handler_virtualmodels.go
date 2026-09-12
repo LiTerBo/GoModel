@@ -41,6 +41,12 @@ type upsertVirtualModelRequest struct {
 	// Slowdown is an extra-time factor from 0.1 to 10; zero disables it.
 	Slowdown *float64 `json:"slowdown,omitempty"`
 	Enabled  *bool    `json:"enabled,omitempty"`
+	// Locked freezes the pointing; omitted keeps the stored state. Unlock is the
+	// explicit gesture that lets a locked row change its targets or strategy in
+	// the same request (sending locked:false does the same and turns the lock
+	// off).
+	Locked *bool `json:"locked,omitempty"`
+	Unlock bool  `json:"unlock,omitempty"`
 }
 
 // virtualModelTargetRequest is one load-balancing destination. Model may be a
@@ -112,6 +118,9 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	if err != nil {
 		return handleError(c, err)
 	}
+	if reason := h.lockRejection(req, vm); reason != "" {
+		return handleError(c, lockedVirtualModelError(reason))
+	}
 	oldSource := strings.TrimSpace(req.OldSource)
 	if oldSource != "" && oldSource != source {
 		err = h.virtualModels.Rename(c.Request().Context(), oldSource, vm)
@@ -181,6 +190,7 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 		Description:     strings.TrimSpace(req.Description),
 		Slowdown:        req.Slowdown,
 		Enabled:         h.virtualModels.ResolveUpsertEnabled(source, req.OldSource, req.Enabled),
+		Locked:          h.virtualModels.ResolveUpsertLocked(source, req.OldSource, req.Locked),
 	}
 
 	targets, err := buildVirtualModelTargets(req)
@@ -192,6 +202,33 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 		return virtualmodels.VirtualModel{}, err
 	}
 	return vm, nil
+}
+
+// lockRejection reports why a locked virtual model rejects this write, or ""
+// when the write is allowed. A locked row still takes edits that leave the
+// pointing alone, but changing which models a caller can end up talking to
+// needs an explicit unlock gesture in the same request: unlock:true keeps the
+// lock on the new pointing, an explicit locked:false turns the lock off.
+//
+// The guard lives here rather than in the service because it is the operator
+// guard on the admin API: config-declared rows are versioned by their config
+// and never come through this path.
+func (h *Handler) lockRejection(req upsertVirtualModelRequest, next virtualmodels.VirtualModel) string {
+	if req.Unlock || (req.Locked != nil && !*req.Locked) {
+		return ""
+	}
+	guardSource := strings.TrimSpace(req.OldSource)
+	if guardSource == "" {
+		guardSource = next.Source
+	}
+	stored, ok := h.virtualModels.Get(guardSource)
+	if !ok || stored == nil || !stored.Locked {
+		return ""
+	}
+	if !virtualmodels.ResolutionConfigChanged(*stored, next) {
+		return ""
+	}
+	return fmt.Sprintf("virtual model %q is locked; send an explicit unlock to change its targets or strategy", stored.Source)
 }
 
 // validateStrategyPlugin rejects a plugin-strategy redirect whose plugin is
