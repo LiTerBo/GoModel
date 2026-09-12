@@ -166,6 +166,14 @@ export function modelRowPricingState(row, views, ignoredSelector) {
       pricing.tiers = clonePricing(patch.tiers);
       sources.tiers = overrideSource;
     }
+    // A saved override replaces the schedule the row advertises, exactly as it
+    // replaces the scalar rates and tiers. Keeping the metadata's windows here
+    // would hint at the catalog's off-peak hours while cost is billed on the
+    // override's.
+    if (Array.isArray(patch.time_windows) && patch.time_windows.length > 0) {
+      pricing.time_windows = clonePricing(patch.time_windows);
+      sources.time_windows = overrideSource;
+    }
   }
   return { pricing, sources };
 }

@@ -135,3 +135,64 @@ test("payload deep-copies time_windows so caller mutations don't leak back", () 
   result.pricing.time_windows[0].label = "mutated";
   assert.equal(tw[0].label, "off_peak");
 });
+
+// The row state feeds the table's time-window hint, so a saved override has to
+// replace the schedule the row advertises, the same way it replaces the scalar
+// rates and tiers. Keeping the metadata's windows would hint at the catalog's
+// off-peak hours while cost is billed on the override's.
+test("override time_windows replace the metadata schedule", () => {
+  const row = {
+    provider_name: "openai-main",
+    model: {
+      id: "gpt-4o",
+      metadata: {
+        pricing: {
+          input_per_mtok: 1,
+          time_windows: [
+            { label: "catalog_peak", utc_ranges: [{ start: "00:00", end: "08:00" }], pricing: { input_per_mtok: 2 } },
+          ],
+        },
+      },
+    },
+  };
+  const views = [
+    {
+      selector: "openai-main/gpt-4o",
+      pricing: {
+        input_per_mtok: 10,
+        time_windows: [
+          { label: "override_off_peak", utc_ranges: [{ start: "16:30", end: "00:30" }], pricing: { input_per_mtok: 1 } },
+        ],
+      },
+    },
+  ];
+
+  const state = modelRowPricingState(row, views);
+
+  assert.equal(state.pricing.time_windows.length, 1);
+  assert.equal(state.pricing.time_windows[0].label, "override_off_peak");
+  assert.equal(state.sources.time_windows, "Dashboard/API override (openai-main/gpt-4o)");
+});
+
+test("an override without time_windows keeps the metadata schedule", () => {
+  const row = {
+    provider_name: "openai-main",
+    model: {
+      id: "gpt-4o",
+      metadata: {
+        pricing: {
+          input_per_mtok: 1,
+          time_windows: [
+            { label: "catalog_peak", utc_ranges: [{ start: "00:00", end: "08:00" }], pricing: { input_per_mtok: 2 } },
+          ],
+        },
+      },
+    },
+  };
+  const views = [{ selector: "openai-main/gpt-4o", pricing: { input_per_mtok: 10 } }];
+
+  const state = modelRowPricingState(row, views);
+
+  assert.equal(state.pricing.time_windows[0].label, "catalog_peak");
+  assert.equal(state.sources.time_windows, undefined);
+});
