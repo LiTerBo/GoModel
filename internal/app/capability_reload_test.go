@@ -10,18 +10,40 @@ import (
 	"github.com/enterpilot/gomodel/internal/storage"
 )
 
-// capabilityGeneration is one application generation for the reload test: the
-// bootstrap the phases hang off, the registry that generation built, and the
-// storage backend it shares with its siblings.
+// capabilityGeneration is one application generation for the capability tests:
+// the bootstrap the phases hang off plus the registry that generation built.
 type capabilityGeneration struct {
 	bootstrap *bootstrap
 	registry  *providers.ModelRegistry
 }
 
+// newTestRegistry registers one openai-compatible provider named "local" that
+// answers with models. It does not fetch: callers choose between Initialize
+// (a live fetch) and LoadFromCache (a restart with the provider gone).
+func newTestRegistry(t *testing.T, models *core.ModelsResponse, providerErr error) *providers.ModelRegistry {
+	t.Helper()
+
+	registry := providers.NewModelRegistry()
+	registry.RegisterProviderWithNameAndType(&runtimeRefreshMockProvider{
+		models: models,
+		err:    providerErr,
+	}, "local", "openai-compatible")
+	return registry
+}
+
+// simpleModels is the inventory the reload test works with.
+func simpleModels() *core.ModelsResponse {
+	return &core.ModelsResponse{
+		Object: "list",
+		Data:   []core.Model{{ID: "my-llm", Object: "model", OwnedBy: "local"}},
+	}
+}
+
 // openCapabilityGeneration builds one generation the way App construction does:
-// open the configured storage, build and initialize the registry, then run the
-// capability phase against both.
-func openCapabilityGeneration(t *testing.T, ctx context.Context, dbPath string) *capabilityGeneration {
+// open the configured storage and run the capability phase against the registry
+// it is handed. The caller prepares that registry first (fetch or cache load),
+// because the phase replays onto whatever inventory the generation published.
+func openCapabilityGeneration(t *testing.T, ctx context.Context, dbPath string, registry *providers.ModelRegistry) *capabilityGeneration {
 	t.Helper()
 
 	backend, err := storage.NewSQLite(storage.SQLiteConfig{Path: dbPath})
@@ -29,17 +51,6 @@ func openCapabilityGeneration(t *testing.T, ctx context.Context, dbPath string) 
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = backend.Close() })
-
-	registry := providers.NewModelRegistry()
-	registry.RegisterProviderWithNameAndType(&runtimeRefreshMockProvider{
-		models: &core.ModelsResponse{
-			Object: "list",
-			Data:   []core.Model{{ID: "my-llm", Object: "model", OwnedBy: "local"}},
-		},
-	}, "local", "openai-compatible")
-	if err := registry.Initialize(ctx); err != nil {
-		t.Fatalf("registry Initialize: %v", err)
-	}
 
 	b := &bootstrap{ctx: ctx, app: &App{
 		storage:   backend,
@@ -76,7 +87,7 @@ func assertReplayedCapability(t *testing.T, registry *providers.ModelRegistry) {
 // runs bootstrap.phases() again, and initCapabilities replays what the previous
 // generation persisted into the registry the new generation just built. So a
 // reload must come up with confirmed verdicts applied, with no new Confirm
-// call — that replay is the reason the phase exists, and it happens on every
+// call - that replay is the reason the phase exists, and it happens on every
 // build rather than only on process start.
 func TestCapabilityConfirmationsSurviveRebuild(t *testing.T) {
 	t.Parallel()
@@ -86,7 +97,11 @@ func TestCapabilityConfirmationsSurviveRebuild(t *testing.T) {
 
 	// First generation: the operator confirms a verdict through the service
 	// this generation built.
-	first := openCapabilityGeneration(t, ctx, dbPath)
+	firstRegistry := newTestRegistry(t, simpleModels(), nil)
+	if err := firstRegistry.Initialize(ctx); err != nil {
+		t.Fatalf("registry Initialize: %v", err)
+	}
+	first := openCapabilityGeneration(t, ctx, dbPath, firstRegistry)
 	if err := first.bootstrap.app.capabilities.Service.Confirm(
 		ctx, "local", "my-llm", map[string]bool{"function_calling": true}, core.CapSrcTest,
 	); err != nil {
@@ -96,6 +111,10 @@ func TestCapabilityConfirmationsSurviveRebuild(t *testing.T) {
 
 	// Second generation: a reload. Same database file, a registry that never
 	// saw the confirmation.
-	second := openCapabilityGeneration(t, ctx, dbPath)
+	secondRegistry := newTestRegistry(t, simpleModels(), nil)
+	if err := secondRegistry.Initialize(ctx); err != nil {
+		t.Fatalf("registry Initialize: %v", err)
+	}
+	second := openCapabilityGeneration(t, ctx, dbPath, secondRegistry)
 	assertReplayedCapability(t, second.registry)
 }
