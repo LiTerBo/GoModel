@@ -4,6 +4,7 @@
 // outside Vite.
 
 import * as m from "../../lib/paraglide/messages.js";
+import { apiErrorCode, apiErrorText } from "../../lib/api/errors.js";
 
 // parseAuthorizedByResponse shapes GET /admin/virtual-models/authorized-by's
 // payload for the editor. Unknown verdicts ride along (they render in the
@@ -87,32 +88,18 @@ export function shouldPreviewImpact({ mode, isRedirect, source }) {
   return Boolean(isRedirect && String(source || "").trim());
 }
 
-// apiErrorCode returns the machine-readable code of a failed admin call, ""
-// when the answer carries none. The envelope matters: getJSON/sendJSON answer
-// {ok, stale, status, data, res}, so the code rides in data.error.code —
-// reading a `body` property matched nothing.
-export function apiErrorCode(result) {
-  const error = result && result.data ? result.data.error : null;
-  if (!error || typeof error !== "object") {
-    return "";
-  }
-  return typeof error.code === "string" ? error.code : "";
-}
+// One implementation, so the code a guard reads and the code the console
+// renders can never come from two different extractions.
+export { apiErrorCode };
 
 // virtualModelErrorText renders a failed virtual-model write from its machine
-// code, "" when the code has no catalog entry yet — callers then show the
-// server message, which stays English for every backend surface (AGENTS.md:
-// localization is the frontend's job, structure is the backend's). source is
-// only needed by the codes whose sentence names the row.
+// code, "" when the code has no catalog entry or needs a param this call did not
+// supply — callers then show the server message, which stays English for every
+// backend surface (AGENTS.md: localization is the frontend's job, structure is
+// the backend's). source is what the sentences that name the row need; the
+// catalog itself lives in $lib/api/errors.js.
 export function virtualModelErrorText(result, source) {
-  const code = apiErrorCode(result);
-  if (code === "virtual_model_locked") {
-    return m.vm_lock_change_blocked();
-  }
-  if (code === "virtual_model_kind_change") {
-    return kindChangeBlockedText(source);
-  }
-  return "";
+  return apiErrorText(result, { source });
 }
 
 // kindChangeBlockedText renders the redirect-takeover guard: the write aimed at

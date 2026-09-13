@@ -1,4 +1,4 @@
-// Pure playground logic — no Svelte runtime, no $lib imports — so
+// Pure playground logic — no Svelte runtime, relative imports only — so
 // tests/playground.test.js can load it straight into node --test.
 //
 // The playground edits one role/content conversation and sends it through the
@@ -9,6 +9,8 @@
 //   buildPlaygroundRequest   conversation  -> request body
 //   extractResponseText      response body -> assistant text (non-streaming)
 //   createStreamAccumulator  SSE events    -> assistant text + assembled body
+
+import { apiErrorText } from "../../lib/api/errors.js";
 
 export const ENDPOINTS = [
   { id: "chat", path: "/v1/chat/completions" },
@@ -145,11 +147,13 @@ export function extractUsage(body) {
 }
 
 // Error text carried by a gateway error payload or an in-stream error event.
+// A coded event renders the console sentence (the gateway's code is the stable
+// part); an event without one keeps the text exactly as it arrived.
 export function streamErrorMessage(event) {
   const error = event && typeof event === "object" ? event.error : null;
   if (!error) return "";
   if (typeof error === "string") return error;
-  return String(error.message || error.type || "");
+  return apiErrorText(event) || String(error.message || error.type || "");
 }
 
 // --- Streaming ---------------------------------------------------------------

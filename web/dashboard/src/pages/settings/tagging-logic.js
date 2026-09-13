@@ -1,5 +1,8 @@
 // Pure tagging-settings logic.
 // Credential-header rejection stays server-side; the PUT surfaces its message.
+// Relative import, not $lib: the node:test suite loads this file directly.
+
+import { apiErrorText } from "../../lib/api/errors.js";
 
 export function defaultTaggingHeader() {
   return {
@@ -45,8 +48,11 @@ export function taggingSettingsPayload(taggingHeaders) {
 }
 
 // taggingErrorMessage extracts the server-side rejection message
-// ({error: {message}}) from a parsed error payload.
+// ({error: {message}}) from a parsed error payload, rendering the console
+// sentence first when the payload carries a code the catalog knows.
 export function taggingErrorMessage(payload) {
+  const localized = apiErrorText(payload);
+  if (localized) return localized;
   if (payload && payload.error && payload.error.message) {
     return payload.error.message;
   }

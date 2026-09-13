@@ -2,7 +2,7 @@
 // conversation-helpers.js.
 
 import { apiFetch, getJSON, isAbortError } from "$lib/api/client.js";
-import { isGatewayAuthError } from "$lib/api/errors.js";
+import { apiErrorText, isGatewayAuthError } from "$lib/api/errors.js";
 import { auth } from "$lib/stores/auth.svelte.js";
 import * as m from "$lib/paraglide/messages.js";
 import { untrack } from "svelte";
@@ -455,8 +455,12 @@ class ConversationDrawerStore {
         if (response.status === 401 && isGatewayAuthError(payload)) {
           auth.handleUnauthorized(generation);
         }
+        // Console sentence for a coded rejection, the raw text otherwise; the
+        // gateway's own fallback when the body said nothing readable.
         this.followUpError =
-          (payload && payload.error && payload.error.message) || m.interaction_send_unavailable();
+          apiErrorText(payload) ||
+          (payload && payload.error && payload.error.message) ||
+          m.interaction_send_unavailable();
         if (this.followUpRequestID === requestID || this.followUpRequestID === responseRequestID) {
           this.followUpRequestID = "";
         }
