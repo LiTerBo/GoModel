@@ -157,5 +157,5 @@ _待实施后填写（要求：测试计数、全量门禁、CI 结论、端到�
 ## 7. 事后修订（2026-09-13）
 
 - **守卫范围**：FR-5/D5 的删除守卫只适用于 **redirect（有 targets 的别名）**。实现原先对**访问策略行**（无 targets）也生效，而策略行在 `classifyGrantImpact` 下必然命中「无白名单」持有人，导致任何部署里的单个模型「下架后无法上架」。已在 `DeleteVirtualModel` 收窄，并补两条回归用例。
-- **提示语言**：FR-5 的 409 文案由控制台按 `code` + `authorized-by` 计数渲染（后端 message 保持英文），前端原先读错返回信封（`body` 而非 `data`），力删除确认链路实际不可达。
+- **提示语言**：FR-5 的 409 文案由控制台按 `code` + `authorized-by` 计数渲染（后端 message 保持英文），前端原先读错返回信封（`body` 而非 `data`），强制删除确认链路实际不可达。
 - 详见 `docs/dev/2026-09-13_model-unpause-guard-scope/修复说明.md` 与同目录 `实现复盘.md`。
