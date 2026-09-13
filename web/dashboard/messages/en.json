@@ -1332,7 +1332,7 @@
   "vm_delete_blocked_confirm": "Still in use — \"{source}\" is reachable by {credentials} credential(s) and {userPaths} user path(s). Delete anyway (force)?",
   "vm_delete_blocked_confirm_unknown": "Still in use — \"{source}\" is reachable by credentials or user paths. Delete anyway (force)?",
   "vm_delete_blocked_notice": "\"{source}\" is still reachable by credentials or user paths; a forced delete is required.",
-  "vm_kind_change_blocked": "\"{source}\" is owned by a virtual model (alias/redirect). Use \"Edit redirect\" to change its pointing, or remove the redirect first.",
+  "vm_kind_change_blocked": "\"{source}\" is a redirect (alias): dropping its pointing needs the explicit clear_targets gesture. Edit the redirect to change where it points, or send clear_targets to retire it.",
   "apierr_request_canceled": "The request was canceled.",
   "apierr_provider_error": "The provider returned an error.",
   "apierr_request_timeout": "The request timed out.",

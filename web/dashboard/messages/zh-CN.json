@@ -1272,7 +1272,7 @@
   "vm_delete_blocked_confirm": "仍被使用 ——「{source}」可被 {credentials} 个凭据、{userPaths} 条用户路径调用。仍要删除（强制）吗？",
   "vm_delete_blocked_confirm_unknown": "仍被使用 ——「{source}」可被凭据或用户路径调用。仍要删除（强制）吗？",
   "vm_delete_blocked_notice": "「{source}」仍可被凭据或用户路径调用，需要强制删除。",
-  "vm_kind_change_blocked": "「{source}」由虚拟模型（别名/重定向）接管：请用「编辑 redirect」调整指向，或先移除该重定向。",
+  "vm_kind_change_blocked": "「{source}」是 redirect（别名）：清空它的指向需要显式手势 clear_targets。请用「编辑 redirect」调整指向，或发 clear_targets 明确清空。",
   "apierr_request_canceled": "请求已取消。",
   "apierr_provider_error": "供应商返回错误。",
   "apierr_request_timeout": "请求超时。",
