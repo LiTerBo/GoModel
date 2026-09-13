@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
 	"github.com/enterpilot/gomodel/internal/storage"
 	"github.com/enterpilot/gomodel/internal/storage/sqlx"
 )
@@ -49,6 +51,6 @@ func createStore(ctx context.Context, store storage.Storage) (Store, error) {
 		ctx,
 		store,
 		func(db sqlx.DB) (Store, error) { return NewSQLStore(ctx, db) },
-		nil, // MongoDB lands with a MongoDB store implementation
+		func(db *mongo.Database) (Store, error) { return NewMongoDBStore(db) },
 	)
 }
