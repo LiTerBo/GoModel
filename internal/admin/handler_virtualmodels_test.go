@@ -277,7 +277,9 @@ func TestUpsertVirtualModelRemovesRedirectAndPreservesPolicyFields(t *testing.T)
 		t.Fatalf("UpsertVirtualModel() error = %v", err)
 	}
 
-	policyBody := `{"source":"gpt-4o","description":"Team model","user_paths":["/team"],"enabled":true}`
+	// Removing a redirect is a kind change: the request has to carry the
+	// explicit gesture (clear_targets), see kindChangeRejection.
+	policyBody := `{"source":"gpt-4o","description":"Team model","user_paths":["/team"],"enabled":true,"clear_targets":true}`
 	policyReq := httptest.NewRequest(http.MethodPut, "/admin/virtual-models", bytes.NewBufferString(policyBody))
 	policyReq.Header.Set("Content-Type", "application/json")
 	policyRec := httptest.NewRecorder()
@@ -307,7 +309,9 @@ func TestUpsertVirtualModelEmptyEditDropsNoopRecord(t *testing.T) {
 	h := newVMHandler(t, redirectVM("gpt-4o", "openai/gpt-4o", true))
 	e := echo.New()
 
-	putBody := `{"source":"gpt-4o","enabled":true}`
+	// An emptied form over a stored redirect is a kind change too, so it needs
+	// the same explicit gesture as the remove-redirect action.
+	putBody := `{"source":"gpt-4o","enabled":true,"clear_targets":true}`
 	putReq := httptest.NewRequest(http.MethodPut, "/admin/virtual-models", bytes.NewBufferString(putBody))
 	putReq.Header.Set("Content-Type", "application/json")
 	putRec := httptest.NewRecorder()

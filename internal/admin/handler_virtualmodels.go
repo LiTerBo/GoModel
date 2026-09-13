@@ -48,6 +48,12 @@ type upsertVirtualModelRequest struct {
 	// off).
 	Locked *bool `json:"locked,omitempty"`
 	Unlock bool  `json:"unlock,omitempty"`
+	// ClearTargets is the explicit gesture that lets a request take a stored
+	// redirect's source over as an access policy (the row leaves the routing
+	// table; other settings are kept). Without it such a write is rejected:
+	// source is the primary key, so a per-model access write used to replace
+	// the alias definition with a policy and drop the pointing.
+	ClearTargets bool `json:"clear_targets,omitempty"`
 }
 
 // virtualModelTargetRequest is one load-balancing destination. Model may be a
@@ -101,7 +107,7 @@ func (h *Handler) ListVirtualModels(c *echo.Context) error {
 // @Success      204            "No-op access policy removed"
 // @Failure      400            {object}  core.GatewayError
 // @Failure      401            {object}  core.GatewayError
-// @Failure      409            {object}  core.GatewayError  "Virtual model is locked: send an explicit unlock with the change"
+// @Failure      409            {object}  core.GatewayError  "Virtual model is locked (send an explicit unlock), or the write would take a stored redirect's source over as an access policy (send clear_targets)"
 // @Failure      502            {object}  core.GatewayError
 // @Failure      503            {object}  core.GatewayError
 // @Router       /admin/virtual-models [put]
@@ -132,6 +138,9 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	stored, _ := h.virtualModels.Get(guardSource)
 	if reason := h.lockRejection(stored, vm, req.Unlock, req.Locked); reason != "" {
 		return handleError(c, lockedVirtualModelError(reason))
+	}
+	if source := kindChangeRejection(stored, vm, req.ClearTargets); source != "" {
+		return handleError(c, virtualModelKindChangeError(source))
 	}
 	oldSource := strings.TrimSpace(req.OldSource)
 	renamed := oldSource != "" && oldSource != source
@@ -269,6 +278,21 @@ func (h *Handler) lockRejection(stored *virtualmodels.VirtualModel, next virtual
 		return ""
 	}
 	return fmt.Sprintf("virtual model %q is locked; send an explicit unlock to change its targets or strategy", stored.Source)
+}
+
+// kindChangeRejection guards a stored redirect's source. Taking it over as an
+// access policy drops the alias definition (source is the primary key on every
+// store backend), so the request has to carry the explicit gesture. A policy
+// turning into a redirect, or a redirect writing a redirect, takes no name
+// away and needs no gesture. Returns "" when the write may proceed.
+func kindChangeRejection(stored *virtualmodels.VirtualModel, next virtualmodels.VirtualModel, clearTargets bool) string {
+	if clearTargets || stored == nil {
+		return ""
+	}
+	if stored.Kind() != virtualmodels.KindRedirect || next.Kind() != virtualmodels.KindPolicy {
+		return ""
+	}
+	return stored.Source
 }
 
 // validateStrategyPlugin rejects a plugin-strategy redirect whose plugin is

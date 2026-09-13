@@ -614,6 +614,7 @@ Fields omitted from the body keep their stored value.
 | `enabled`           | `bool`              | Whether requests can reach this alias                              |
 | `locked`            | `bool`              | Freezes the pointing (see below)                                   |
 | `unlock`            | `bool`              | Explicit gesture to edit a locked row while keeping it locked      |
+| `clear_targets`     | `bool`              | Explicit gesture to replace a stored redirect with an access policy|
 
 **The `locked` field.** A locked virtual model rejects writes that change the
 pointing — the targets, their weights and order, and the strategy that picks
@@ -623,6 +624,15 @@ are still accepted. To change the pointing of a locked row, send
 off) in the same request.
 
 **Response `200`:** The updated virtual model as shown in `GET /admin/virtual-models`.
+
+**The `clear_targets` field.** A virtual model whose `source` is already a
+redirect (it has a `target_model` or `targets`) rejects a body that carries no
+pointing: `source` is the primary key, so accepting it would replace the alias
+definition with an access policy and drop the pointing. Send
+`clear_targets: true` to make that kind change on purpose — the row keeps its
+`description`, `user_paths`, `slowdown`, and `enabled`, and leaves the routing
+table. A redirect writing a redirect, and a policy turning into a redirect,
+need no gesture. Only a request that *removes* a stored pointing does.
 
 **Response `204`:** Returned when the upsert produces no visible row (access
 policy removed).
@@ -634,6 +644,7 @@ policy removed).
 | `400`| Invalid input — missing source, malformed targets, validation error|
 | `401`| Unauthenticated                                                    |
 | `409`| **`virtual_model_locked`** — resolution config change on a locked row without `unlock` |
+| `409`| **`virtual_model_kind_change`** — the body would replace a stored redirect with an access policy without `clear_targets` |
 | `502`| Store failure                                                      |
 | `503`| Feature unavailable                                                |
 

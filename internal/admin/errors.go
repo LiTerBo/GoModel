@@ -60,6 +60,21 @@ func virtualModelInUseError(source string, credentials, userPaths int) error {
 		WithParam("force")
 }
 
+// virtualModelKindChangeError reports a write rejected because it would take a
+// stored redirect's source over as an access policy, dropping the alias
+// definition. The request has to carry the explicit gesture (clear_targets);
+// the dashboard renders the sentence from the code (AGENTS.md: this message
+// stays English, like every backend surface).
+func virtualModelKindChangeError(source string) error {
+	message := fmt.Sprintf(
+		"virtual model %q is a redirect; send clear_targets to replace it with an access policy",
+		source,
+	)
+	return core.NewInvalidRequestErrorWithStatus(http.StatusConflict, message, nil).
+		WithCode("virtual_model_kind_change").
+		WithParam("clear_targets")
+}
+
 func quotaTemplatesUnavailableError() error {
 	return core.NewInvalidRequestErrorWithStatus(
 		http.StatusForbidden,
