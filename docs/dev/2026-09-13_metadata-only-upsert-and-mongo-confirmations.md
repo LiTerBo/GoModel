@@ -49,7 +49,9 @@
 - **Go 单测（`make test` 的集合）**：`cmd/config/ext/internal/run` 共 **97 包 ok / 0 FAIL**（exit 0）。
 - **E2E 全套（`-tags=e2e ./tests/e2e/...`）本地实跑**：`ok 11.273s`（含修订后的 `TestAliasCRUD_E2E`；修订前该用例本地复现 409，修后 200 + 定义仍带 `test/gpt-4`）。
 - **前端**：`npm test` **804/804**、`svelte-check` **0 error/0 warning**、`build` ok（本次只改了 `vm_kind_change_blocked` 的文案）。
-- **Mongo 实测**：`internal/capability` 的 Mongo 测试在无 `MONGO_TEST_DSN` 时会 SKIP（仓库既有约定），而本机拉取 `mongo:7` 镜像（ECR 与 gcr 两个源）在本轮耗时内未完成，因此**本地未取得「对真 MongoDB」的实测证据**；改由**本轮推送后的 CI `Integration Tests` job** 验证（该 job 在 TestMain 里自建 postgres+mongo 容器，正是原先红的那一环）。**这条不当作已通过，直到 CI 回绿。**
+- **Mongo 实测（真容器，已完成）**：本机 `docker run -d --name gm-mongo-cap -p 27019:27017 mongo:7` 起真 MongoDB 后，`MONGO_TEST_DSN=mongodb://127.0.0.1:27019 go test ./internal/capability/ -v` 的 **7 条 Mongo 存储子用例全 PASS（非 SKIP）**；`tests/integration` 全套 `ok 36.4s`，其中 **6 条 MongoDB 后端用例 PASS / 0 FAIL / 0 SKIP**。核对时必须用 `-v` 逐条看，否则 SKIP 也会显示 ok。
+- **CI 复核**：推送后的 `CI` run（提交 `637091c7`）**10/10 job `success`** —— `Integration Tests` 与 `E2E Tests` 首次转绿，`lint` 与 `Docs Validation` 的历史旧账也在同一轮清完。
+- **限流结论（#52 的镜像来源/限流验收项）**：`toomanyrequests` 不是成因 —— CI 日志中该串出现 0 次，且 Integration job 的镜像拉取实际成功（失败发生在测试内 `mongodb handler is nil`）。套件本身已带预拉取 + 4 次退避重试（`tests/integration/docker_test.go`），CI 侧无任何镜像代理配置（`.github/workflows/test.yml`），故**镜像来源保持 `public.ecr.aws/docker/library/*` 不变**即满足该项。本机曾拉不动是本机 Docker daemon 走代理（大 blob EOF）所致，与 ECR 配额无关。
 - **反向验证**：`TestUpsertVirtualModelMetadataOnlyWrite` 的 4 个用例在回到旧实现时会全部失败（lock 后 pointed 为空、description/user_paths 被抹），即断言是可证伪的。
 
 ## 6. 边界（本次未做）
