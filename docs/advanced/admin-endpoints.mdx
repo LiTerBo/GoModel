@@ -679,6 +679,12 @@ restores the catalog default (the same gesture the Models page switch uses to
 put a single model back on the shelf). Such a delete always answers `204`, even
 when unrestricted credentials or user paths would match the reachability tally.
 
+**Paused redirects are never gated.** A redirect with `enabled: false` resolves
+no name either: a request aimed at it is refused before routing, so the holders
+the tally lists reach nothing through it and the delete takes nothing away. The
+delete answers `204` without `force`. Turn the row back on (`enabled: true`)
+first if you want the guard to describe it again.
+
 **Response `204`:** No content on success.
 
 **Error codes:**

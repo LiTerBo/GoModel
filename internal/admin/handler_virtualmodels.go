@@ -201,8 +201,13 @@ func (h *Handler) DeleteVirtualModel(c *echo.Context) error {
 	// and because the tally reports every unrestricted holder for any source,
 	// gating on it would make a policy row undeletable in any deployment that
 	// has one.
+	//
+	// A paused redirect (enabled=false) resolves no name either: authorization
+	// refuses a request aimed at it before routing, so the holders reach
+	// nothing through it and the delete takes nothing away. Gating there would
+	// only strand a row nobody can reach.
 	used := []authorizedByGrant(nil)
-	if len(stored.Targets) > 0 {
+	if len(stored.Targets) > 0 && stored.Enabled {
 		used = h.virtualModelUsage(stored)
 	}
 	credentials := countGrantKind(used, "credential")

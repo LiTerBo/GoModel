@@ -243,7 +243,10 @@ English). A **force delete** (`force: true` in the admin API or the
 corresponding dashboard action) bypasses the guard and removes the alias
 regardless of outstanding authorizations. The guard covers redirects only —
 access policies resolve no name, so removing one (how the Models page puts a
-single model back on the shelf) is never gated.
+single model back on the shelf) is never gated. A **paused** redirect
+(`enabled: false`) is not gated either: requests aimed at it are refused before
+routing, so nobody reaches anything through it and the delete takes nothing
+away. Turn it back on if you want the guard to describe it again.
 
 ## Lock an alias
 
