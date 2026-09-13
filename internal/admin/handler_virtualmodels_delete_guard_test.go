@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/enterpilot/gomodel/internal/authkeys"
+	"github.com/enterpilot/gomodel/internal/virtualmodels"
 )
 
 // T13-D: deleting a virtual model takes it away from everyone who reaches it by
@@ -133,4 +134,63 @@ func containsAll(haystack string, needles ...string) bool {
 		}
 	}
 	return true
+}
+
+// The guard protects addressable rows only. An access policy carries no
+// targets, so it resolves no name for anybody: deleting it drops the row's
+// restriction and restores the catalog default, which takes nothing away from
+// the holders the tally lists — and that tally lists them for ANY source when
+// their allowlist is empty. Gating the delete on it made un-pausing a single
+// model impossible (report 2026-09-13: oMLX/bge-m3-mlx-8bit answered 409 with
+// "still reachable by 2 credential(s) and 1 user path(s)").
+func TestDeleteVirtualModelPolicyRowNeedsNoForce(t *testing.T) {
+	now := time.Now().UTC()
+	keys := []authkeys.AuthKey{
+		// Both holders are unrestricted (empty allowlist): they reach every
+		// model, which is why they must not stand in for "references this row".
+		{ID: "team", Name: "team", UserPath: "/acme", SecretHash: "h1", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	}
+	policy := virtualmodels.VirtualModel{Source: "oMLX/bge-m3-mlx-8bit", Enabled: false}
+	h := newAuthorizedByHandler(t, keys, policy)
+	mustUpsertUser(t, h, `{"user_path":"/acme","allowed_models":[]}`)
+
+	code, body := deleteVirtualModel(t, h, `{"source":"oMLX/bge-m3-mlx-8bit"}`)
+	if code != http.StatusNoContent {
+		t.Fatalf("policy delete status = %d, want %d (code=%s message=%s)", code, http.StatusNoContent, body.Error.Code, body.Error.Message)
+	}
+	if _, ok := h.virtualModels.Get("oMLX/bge-m3-mlx-8bit"); ok {
+		t.Fatalf("Get(policy) after delete = present, want it deleted")
+	}
+}
+
+// The same holders must still gate an alias delete: a redirect IS the name
+// callers address, so an unrestricted credential — which can call the alias by
+// name — is a holder the operator has to confirm against.
+func TestDeleteVirtualModelAliasStaysGatedByUnrestrictedHolders(t *testing.T) {
+	now := time.Now().UTC()
+	keys := []authkeys.AuthKey{
+		{ID: "team", Name: "team", UserPath: "/acme", SecretHash: "h1", Enabled: true, CreatedAt: now, UpdatedAt: now},
+	}
+	alias := virtualmodels.VirtualModel{
+		Source:  "smart",
+		Targets: []virtualmodels.Target{{Provider: "openai", Model: "gpt-4o"}},
+		Enabled: true,
+	}
+	h := newAuthorizedByHandler(t, keys, alias)
+	mustUpsertUser(t, h, `{"user_path":"/acme","allowed_models":[]}`)
+
+	code, body := deleteVirtualModel(t, h, `{"source":"smart"}`)
+	if code != http.StatusConflict {
+		t.Fatalf("alias delete status = %d, want %d", code, http.StatusConflict)
+	}
+	if body.Error.Code != "virtual_model_in_use" {
+		t.Fatalf("code = %q, want virtual_model_in_use", body.Error.Code)
+	}
+	if !containsAll(body.Error.Message, "1 credential(s)", "1 user path(s)") {
+		t.Fatalf("message = %q, want the unrestricted holder tally", body.Error.Message)
+	}
+	// Force still overrides it.
+	if code, _ := deleteVirtualModel(t, h, `{"source":"smart","force":true}`); code != http.StatusNoContent {
+		t.Fatalf("forced alias delete status = %d, want %d", code, http.StatusNoContent)
+	}
 }

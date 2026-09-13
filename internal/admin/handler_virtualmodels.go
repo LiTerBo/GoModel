@@ -163,7 +163,7 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 // @Failure      400       {object}  core.GatewayError
 // @Failure      401       {object}  core.GatewayError
 // @Failure      404       {object}  core.GatewayError
-// @Failure      409       {object}  core.GatewayError  "Credentials or user paths still reach the virtual model: send force to delete it"
+// @Failure      409       {object}  core.GatewayError  "Credentials or user paths still reach the redirect: send force to delete it"
 // @Failure      502       {object}  core.GatewayError
 // @Failure      503       {object}  core.GatewayError
 // @Router       /admin/virtual-models [delete]
@@ -185,8 +185,17 @@ func (h *Handler) DeleteVirtualModel(c *echo.Context) error {
 	if !ok || stored == nil {
 		return handleError(c, core.NewNotFoundError("virtual model not found: "+source))
 	}
-	// The reachability list answers both the guard and the audit event.
-	used := h.virtualModelUsage(stored)
+	// Only a redirect (a row with targets) is an addressable name, so only its
+	// delete takes reachability away from the holders the tally lists. An
+	// access policy resolves no name: deleting it drops the row's restriction
+	// and restores the catalog default, which removes nothing from anybody —
+	// and because the tally reports every unrestricted holder for any source,
+	// gating on it would make a policy row undeletable in any deployment that
+	// has one.
+	used := []authorizedByGrant(nil)
+	if len(stored.Targets) > 0 {
+		used = h.virtualModelUsage(stored)
+	}
 	credentials := countGrantKind(used, "credential")
 	userPaths := countGrantKind(used, "user_path")
 	if !req.Force && len(used) > 0 {

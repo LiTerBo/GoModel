@@ -46,8 +46,10 @@ func lockedVirtualModelError(message string) error {
 }
 
 // virtualModelInUseError reports a delete rejected because credentials or user
-// paths still reach the virtual model. The caller renders the affected list
+// paths still reach the redirect. The caller renders the affected list
 // from GET /admin/virtual-models/authorized-by; the error names the override.
+// Access policies never reach it: they carry no targets, so deleting one takes
+// no name away (see Handler.DeleteVirtualModel).
 func virtualModelInUseError(source string, credentials, userPaths int) error {
 	message := fmt.Sprintf(
 		"virtual model %q is still reachable by %d credential(s) and %d user path(s); send force to delete it",

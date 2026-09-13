@@ -655,11 +655,18 @@ Removes one virtual model. The body identifies it by `source`.
 | `source` | `string` | **Required.** Virtual model name to remove                         |
 | `force`  | `bool`   | Override the reachability guard (see below)                        |
 
-**The `force` parameter.** When credentials or user-path policies still reach
-the virtual model, the delete is rejected with `409 virtual_model_in_use`
-naming the counts. Set `force: true` to override the guard and take the
-alias away from the listed holders. Use `GET /admin/virtual-models/authorized-by?source={name}`
+**The `force` parameter.** Deleting a **redirect** (a row with targets) takes the
+addressable name away from everyone reaching it: when credentials or user-path
+policies still reach it, the delete is rejected with `409 virtual_model_in_use`
+naming the counts. Set `force: true` to override the guard and take the alias
+away from the listed holders. Use `GET /admin/virtual-models/authorized-by?source={name}`
 to preview who will lose access before force-deleting.
+
+**Access policies are never gated.** A row without targets resolves no name for
+anybody, so deleting it takes nothing away — it drops the row's restriction and
+restores the catalog default (the same gesture the Models page switch uses to
+put a single model back on the shelf). Such a delete always answers `204`, even
+when unrestricted credentials or user paths would match the reachability tally.
 
 **Response `204`:** No content on success.
 
