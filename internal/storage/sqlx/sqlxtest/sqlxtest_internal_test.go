@@ -29,3 +29,29 @@ func TestIsTransientCatalogRace(t *testing.T) {
 		})
 	}
 }
+
+// Two parallel subtests must never share a database. Truncating long names to a
+// fixed length made exactly that happen: both of these cut to
+// "testroutecontentneeded_an_alias_scoped_t", so they shared one shared-cache
+// in-memory SQLite database and raced over the same row.
+func TestSanitizeIdentifierKeepsLongNamesApart(t *testing.T) {
+	names := []string{
+		"TestRouteContentNeeded/an_alias_scoped_to_another_user_path_is_not_this_caller's",
+		"TestRouteContentNeeded/an_alias_scoped_to_this_user_path_applies",
+		"TestRouteContentNeeded/a_model_that_is_not_an_alias_needs_nothing",
+	}
+	seen := make(map[string]string, len(names))
+	for _, name := range names {
+		got := sanitizeIdentifier(name)
+		if len(got) > maxIdentifierBytes {
+			t.Fatalf("sanitizeIdentifier(%q) = %q (%d bytes), want <= %d", name, got, len(got), maxIdentifierBytes)
+		}
+		if prev, ok := seen[got]; ok {
+			t.Fatalf("sanitizeIdentifier collides: %q and %q both -> %q", prev, name, got)
+		}
+		seen[got] = name
+	}
+	if got := sanitizeIdentifier("TestShort"); got != "testshort" {
+		t.Fatalf("sanitizeIdentifier(TestShort) = %q, want it unchanged", got)
+	}
+}

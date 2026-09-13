@@ -15,7 +15,9 @@ package sqlxtest
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -154,8 +156,11 @@ func NewPostgresPool(t *testing.T) *pgxpool.Pool {
 }
 
 // sanitizeIdentifier reduces a test name to characters safe in a schema name
-// or SQLite DSN, and bounds its length so the result stays inside
-// PostgreSQL's 63-byte identifier limit once prefixed and numbered.
+// (PostgreSQL) and in a SQLite URI. Names longer than maxIdentifierBytes keep a
+// prefix plus a digest of the FULL name: truncation alone collides, and two
+// parallel subtests sharing one identifier also share one database — in SQLite
+// that is a single shared-cache in-memory database, so their rows overwrite
+// each other.
 func sanitizeIdentifier(name string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(name) {
@@ -167,11 +172,17 @@ func sanitizeIdentifier(name string) string {
 		}
 	}
 	out := b.String()
-	if len(out) > 40 {
-		out = out[:40]
+	if len(out) > maxIdentifierBytes {
+		sum := sha256.Sum256([]byte(name))
+		// prefix + "_" + 8 hex digits == maxIdentifierBytes
+		out = out[:maxIdentifierBytes-9] + "_" + hex.EncodeToString(sum[:4])
 	}
 	return out
 }
+
+// maxIdentifierBytes is the identifier budget quoted from the shorter of the
+// two consumers: PostgreSQL's 63-byte limit and SQLite's practical URI length.
+const maxIdentifierBytes = 40
 
 // quoteIdentifier wraps an identifier in double quotes, escaping any it holds.
 func quoteIdentifier(name string) string {
