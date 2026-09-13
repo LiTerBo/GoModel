@@ -63,14 +63,9 @@ func (s *MongoDBStore) Upsert(ctx context.Context, c Confirmation) error {
 	if err != nil {
 		return err
 	}
-	doc := mongoConfirmationDocument{
-		Provider:   confirmation.Provider,
-		Model:      confirmation.Model,
-		Capability: confirmation.Capability,
-		Source:     confirmation.Source,
-		Value:      confirmation.Value,
-		CreatedAt:  confirmation.CreatedAt,
-	}
+	// The document mirrors Confirmation field for field, so the conversion is
+	// the whole mapping; staticcheck asks for it instead of a struct literal.
+	doc := mongoConfirmationDocument(confirmation)
 	filter := mongoConfirmationKey{
 		Provider:   confirmation.Provider,
 		Model:      confirmation.Model,
@@ -99,14 +94,7 @@ func (s *MongoDBStore) List(ctx context.Context) ([]Confirmation, error) {
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, fmt.Errorf("decode capability confirmation: %w", err)
 		}
-		result = append(result, Confirmation{
-			Provider:   doc.Provider,
-			Model:      doc.Model,
-			Capability: doc.Capability,
-			Source:     doc.Source,
-			Value:      doc.Value,
-			CreatedAt:  doc.CreatedAt,
-		})
+		result = append(result, Confirmation(doc))
 	}
 	if err := cursor.Err(); err != nil {
 		return nil, fmt.Errorf("iterate capability confirmations: %w", err)
