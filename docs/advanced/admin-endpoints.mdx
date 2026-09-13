@@ -625,14 +625,20 @@ off) in the same request.
 
 **Response `200`:** The updated virtual model as shown in `GET /admin/virtual-models`.
 
-**The `clear_targets` field.** A virtual model whose `source` is already a
-redirect (it has a `target_model` or `targets`) rejects a body that carries no
-pointing: `source` is the primary key, so accepting it would replace the alias
-definition with an access policy and drop the pointing. Send
-`clear_targets: true` to make that kind change on purpose — the row keeps its
-`description`, `user_paths`, `slowdown`, and `enabled`, and leaves the routing
-table. A redirect writing a redirect, and a policy turning into a redirect,
-need no gesture. Only a request that *removes* a stored pointing does.
+**The `clear_targets` field.** A request that asks for a row with no pointing — an
+explicit empty `targets: []` — would replace a stored redirect's definition and
+drop it: `source` is the primary key, so the row would silently stop being an
+alias. Send `clear_targets: true` to do that on purpose; the row leaves the
+routing table and keeps whatever else the request carries. A redirect writing a
+redirect, and a policy turning into a redirect, need no gesture.
+
+**Metadata-only writes keep the row.** A body that says nothing about the
+pointing (no `target_model`, no targets) is a metadata edit: `locked`, `enabled`,
+`description`, `user_paths`, and the stored pointing all keep their stored
+values, so an API caller can flip one field without restating the whole alias.
+A body that sends its own pointing replaces the rest of the row instead — that
+is how an access policy becomes a redirect — and `enabled`/`locked` are the
+tri-state fields that always keep their stored value when omitted.
 
 **Response `204`:** Returned when the upsert produces no visible row (access
 policy removed).
