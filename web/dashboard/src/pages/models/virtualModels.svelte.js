@@ -29,6 +29,11 @@ import {
 import { computeRenderStep, initialRenderStep } from "./renderBatching.js";
 import { modelAccessStateClass, splitVirtualModelViews } from "./routing.js";
 import { buildAliasTogglePayload, buildModelTogglePayload } from "./vmForm.js";
+import {
+  apiErrorCode,
+  deleteBlockedNotice,
+  virtualModelErrorText,
+} from "./vmImpactPreview.js";
 
 class VirtualModelsStore {
   virtualModelsAvailable = $state(true);
@@ -342,6 +347,17 @@ class VirtualModelsStore {
       : m.models_enable_action({ subject: subject.trim() });
   }
 
+  // virtualModelFailureText resolves a failed row write to a localized sentence:
+  // the in-use guard (reported as a notice — the row switch has no dialog and no
+  // holder tally), a server-side lock, or the caller's generic fallback. The
+  // backend message stays English (AGENTS.md), so it is only the last resort.
+  virtualModelFailureText(result, source, fallback) {
+    if (apiErrorCode(result) === "virtual_model_in_use") {
+      return deleteBlockedNotice(source);
+    }
+    return virtualModelErrorText(result) || errorMessage(result, fallback);
+  }
+
   async toggleRowEnabled(row) {
     if (!this.virtualModelsAvailable) {
       return;
@@ -391,7 +407,11 @@ class VirtualModelsStore {
         flash.error(
           result.status === 401
             ? m.common_authentication_required()
-            : errorMessage(result, m.models_alias_update_failed()),
+            : this.virtualModelFailureText(
+                result,
+                alias.name,
+                m.models_alias_update_failed(),
+              ),
         );
         return;
       }
@@ -439,7 +459,11 @@ class VirtualModelsStore {
           flash.error(
             result.status === 401
               ? m.common_authentication_required()
-              : errorMessage(result, m.models_access_update_failed()),
+              : this.virtualModelFailureText(
+                  result,
+                  selector,
+                  m.models_access_update_failed(),
+                ),
           );
           return;
         }
@@ -549,7 +573,11 @@ class VirtualModelsStore {
           flash.error(
             result.status === 401
               ? m.common_authentication_required()
-              : errorMessage(result, options.failureMessage),
+              : this.virtualModelFailureText(
+                  result,
+                  (options.payload && options.payload.source) || "",
+                  options.failureMessage,
+                ),
           );
           return;
         }

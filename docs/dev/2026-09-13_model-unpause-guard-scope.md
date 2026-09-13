@@ -1,0 +1,91 @@
+# 单个模型「上架」被别名守卫拦住 + 提示未本地化
+
+- **日期**：2026-09-13
+- **类型**：后端（`DELETE /admin/virtual-models` 守卫范围）+ 前端（i18n 渲染 + 强制删除确认链路）；**无**接口结构变化、**无**新增端点、**无**鉴权语义变化
+- **现象来源**：用户实测 `admin/dashboard/models` 页
+
+## 1. 现象（实测复现）
+
+模型页对单行模型使用上下架开关。以 `oMLX/bge-m3-mlx-8bit` 为例：
+
+| 步骤 | 请求 | 修复前 | 修复后 |
+| --- | --- | --- | --- |
+| 下架 | `PUT /admin/virtual-models {source:"oMLX/bge-m3-mlx-8bit", enabled:false, user_paths:[]}` | 200，落一行**无 target 的访问策略行**（下架态） | 不变 |
+| 上架 | `DELETE /admin/virtual-models {source:"oMLX/bge-m3-mlx-8bit"}` | **409** `virtual_model_in_use`：`virtual model "oMLX/bge-m3-mlx-8bit" is still reachable by 2 credential(s) and 1 user path(s); send force to delete it` | **204** |
+
+两个问题：
+
+1. **不该被拦**：该行是访问策略（`kind=policy`，无 targets），不是别名；模型与任何虚拟模型/别名都没有关系，守卫提示与事实不符，且上架动作因此卡死。
+2. **提示为英文**：控制台语言为中文，弹窗直接透传后端英文 message。
+
+实测证据（修复前，本机 `:8080`）：
+
+```text
+DELETE /admin/virtual-models {"source":"oMLX/bge-m3-mlx-8bit"}      -> 409
+DELETE /admin/virtual-models {"source":"oMLX/bge-m3-mlx-8bit","force":true} 可删
+GET /admin/virtual-models/authorized-by?source=oMLX/bge-m3-mlx-8bit
+  -> summary {follow:0, potential:0, unrestricted:3}
+     命中项全部是 change=unrestricted（allowed_models 为空的凭据/用户路径）
+```
+
+## 2. 根因
+
+### 2.1 守卫范围（后端 `internal/admin/handler_virtualmodels.go`）
+
+删除守卫的设计前提（T13 / FR-5、`docs/features/virtual-models.mdx`）是「删除**别名**会把可寻址的名字从持有人手里拿走」，因此无 `force` 时 409。但实现把它套用到了所有行：
+
+```go
+used := h.virtualModelUsage(stored)          // 修复前：无条件计算
+if !req.Force && len(used) > 0 { ... 409 ... }
+```
+
+`virtualModelUsage` → `classifyGrantImpact(name, entries, current, proposed)`，而策略行的 `Targets` 为空 ⇒ `current = proposed = []`：
+
+- `len(entries) == 0` ⇒ `ImpactUnrestricted`（**任何 source 都会命中**）
+- `coveringEntries(entries, [], [])` 因选择器集合为空直接返回 nil ⇒ 只有「无白名单」的持有者会被计入
+
+所以只要部署里有一个不受限的凭据或用户路径，**任何策略行都删不掉**——与「这个模型是否被引用」无关。本机命中 2 凭据 + 1 路径全部来自 `unrestricted`。
+
+### 2.2 提示语言（前端 `web/dashboard`）
+
+`vmImpactPreview.js` 的 `deleteBlockedMessage` 从 **`result.body`** 读取 `error.code`，而 `getJSON/sendJSON` 的返回信封是 **`{ok, stale, status, data, res}`** —— 真实字段是 `result.data.error.code`。因此：
+
+- 代码判断永远不成立 ⇒ 永远走 `fallback()`；
+- 别名编辑器调用点 `deleteBlockedMessage(result.body?.message || "")` 只传了 1 个参数 ⇒ `fallback` 为 `undefined` ⇒ **抛 TypeError**，被外层 catch 吞掉后显示通用「删除失败」；
+- 结果：把 409 渲染成后端英文 message 的路径（模型页 flash）与力删除确认链路（编辑器）同时失效。
+
+修复后按 AGENTS.md 的约定分工：后端保持英文 `message` + 机器可读 `code/param`，前端用目录文案渲染句子。
+
+## 3. 修复
+
+| 层 | 文件 | 改动 |
+| --- | --- | --- |
+| 后端 | `internal/admin/handler_virtualmodels.go` | 仅当行有 targets（redirect/别名）时才计算可达性并启用守卫；策略行删除一律 204 |
+| 前端 | `src/pages/models/vmImpactPreview.js` | 新增 `apiErrorCode` / `virtualModelErrorText` / `impactHolderCounts` / `deleteBlockedConfirm` / `deleteBlockedNotice`；删除读取 `body` 的旧函数 |
+| 前端 | `src/pages/models/virtualModelEditor.svelte.js` | 409 分支按 `code` 分流：`virtual_model_in_use` → 取 `authorized-by` 计数后渲染本地化确认句（无计数时降级为不含计数的句子）；其他 409 走 `virtualModelErrorText`；保存路径的 `virtual_model_locked` 复用既有 `vm_lock_change_blocked` 文案 |
+| 前端 | `src/pages/models/virtualModels.svelte.js` | 行开关/删除失败统一经 `virtualModelFailureText`，`virtual_model_in_use` 渲染为计数无关的本地化提示 |
+| i18n | `messages/en.json`、`messages/zh-CN.json` | `vm_delete_blocked_confirm` 改为计数入参；新增 `vm_delete_blocked_confirm_unknown`、`vm_delete_blocked_notice`（两语言同序） |
+| 文档 | `docs/advanced/admin-endpoints.mdx`、`docs/features/virtual-models.mdx` | 写明守卫仅覆盖 redirect；策略行删除不受限；提示语言由控制台渲染 |
+
+## 4. 验证
+
+- Go：`go test ./internal/...` 全绿（新增 `TestDeleteVirtualModelPolicyRowNeedsNoForce`、`TestDeleteVirtualModelAliasStaysGatedByUnrestrictedHolders`；TDD 先红后绿，红灯即复现 409 + 英文提示）
+- Dashboard：`npm test` 782/782（新增 5 条守卫纯函数用例，其中一条钉住信封形状 `data.error.code`）、`npm run check` 0 error / 0 warning、`npm run build` ok
+- 实测（重建 `bin/gomodel` 并重启本机实例）：同一行 下架→上架 连续两轮 `PUT 200 → DELETE 204`；行删除后 `access.effective_enabled=true` 且 `/v1/models` 重新列出；别名 `smart` 无 `force` 仍 409 且未被删除（守卫未被放空）
+- 产物核对：`internal/admin/dashboard/static/dist/assets/index-*.js` 内含 zh-CN 文案模板与 `virtual_model_in_use` 分流
+
+## 5. 遗留 / 后续
+
+1. **同类英文提示未扫全**：`internal/` 内 `WithCode(...)` 共 22 个机器码，前端目前只从目录渲染 2 个（`virtual_model_locked`、`virtual_model_in_use`，另有 `dashboard_access_denied`/`feature_unavailable` 等按页面特判）。其余仍回退英文 message。建议做一层「code → 目录文案」映射并在 i18n 测试里保证覆盖。**已登记 [#54](https://github.com/LiTerBo/GoModel/issues/54)。**
+2. **遮蔽别名（masking alias）风险**：源名形如 `provider/model` 的 redirect 行会与同名具体模型行共存；模型行的上下架开关走 `PUT/DELETE` 同名策略，`Upsert` 会按 source 覆盖该 redirect。**已登记 [#55](https://github.com/LiTerBo/GoModel/issues/55)；存储层已实测**：同 source 的 policy `Upsert` 后读回 `targets=[]`（redirect 定义被顶掉），端到端点击未复现（本机无此类行）。
+3. **禁用状态的别名**：守卫对 `enabled=false` 的 redirect 仍会拦（严格说此时无人可达）。本次有意收窄改动范围，保留原行为。
+
+## 6. 顺带修复：测试库标识截断撞名（`make test` 偶发红灯）
+
+排查本次门禁时发现 `TestRouteContentNeeded` 偶发失败（`an_alias_scoped_to_another_user_path_is_not_this_caller's` 子用例读到 `/team` 作用域的行）：
+
+- 根因：`sqlxtest.sanitizeIdentifier` 把测试名截断到 40 字节，两个并行子用例
+  `…/an_alias_scoped_to_another_user_path…` 与 `…/an_alias_scoped_to_this_user_path…`
+  截断后同为 `testroutecontentneeded_an_alias_scoped_t` ⇒ 共用同一个 `cache=shared` 内存库 ⇒ 同名 source 互相覆盖。
+- 证据：在 **未改动** 的 `HEAD` 工作树里 `go test ./internal/virtualmodels -run TestRouteContentNeeded -count=20` 失败 4 次；修复后五次 `-count=20` 全绿。
+- 修复：截断时保留前缀并追加全名 sha256 前 4 字节（长度仍 ≤ 40），并新增 `TestSanitizeIdentifierKeepsLongNamesApart` 钉住「并行子用例不得同名」。

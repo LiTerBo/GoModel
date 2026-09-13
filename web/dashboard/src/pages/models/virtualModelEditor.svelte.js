@@ -42,10 +42,12 @@ import {
   applyLockFields,
 } from "./vmForm.js";
 import {
-  deleteBlockedMessage,
+  apiErrorCode,
+  deleteBlockedConfirm,
   groupImpactGrants,
   parseAuthorizedByResponse,
   shouldPreviewImpact,
+  virtualModelErrorText,
 } from "./vmImpactPreview.js";
 import { virtualModels } from "./virtualModels.svelte.js";
 
@@ -164,6 +166,30 @@ class VirtualModelEditorStore {
       if (this.vmImpactRequestedKey === key) {
         this.vmImpactLoading = false;
       }
+    }
+  }
+
+  // fetchImpactInventory loads the stored row's holder inventory for the delete
+  // guard; no new_targets, so the backend previews the definition it will
+  // delete — the same set its 409 count comes from. null when unavailable, so
+  // the caller can degrade instead of guessing.
+  async fetchImpactInventory(source) {
+    const name = String(source || "").trim();
+    if (!name) {
+      return null;
+    }
+    try {
+      const params = new URLSearchParams({ source: name });
+      const result = await getJSON(
+        "/admin/virtual-models/authorized-by?" + params.toString(),
+        { label: "delete impact" },
+      );
+      if (!result.ok || result.stale) {
+        return null;
+      }
+      return parseAuthorizedByResponse(result.data);
+    } catch {
+      return null;
     }
   }
 
@@ -700,7 +726,8 @@ class VirtualModelEditorStore {
         this.vmFormError =
           result.status === 401
             ? m.common_authentication_required()
-            : errorMessage(result, m.models_save_failed());
+            : virtualModelErrorText(result) ||
+              errorMessage(result, m.models_save_failed());
         return;
       }
       const policyPruned = !isRedirect && result.status === 204;
@@ -763,8 +790,19 @@ class VirtualModelEditorStore {
         return;
       }
       if (result.status === 409 && !this.vmDeleteForcePending) {
-        const msg = deleteBlockedMessage(result.body?.message || "");
-        if (window.confirm(msg)) {
+        // Only the in-use guard is a force-confirm prompt. Any other 409 (a
+        // server-side lock, say) is an error the operator has to fix first.
+        if (apiErrorCode(result) !== "virtual_model_in_use") {
+          this.vmFormError =
+            virtualModelErrorText(result) ||
+            errorMessage(result, m.models_remove_failed());
+          return;
+        }
+        const confirmMessage = deleteBlockedConfirm(
+          source,
+          await this.fetchImpactInventory(source),
+        );
+        if (window.confirm(confirmMessage)) {
           this.vmDeleteForcePending = true;
           this.vmDeleting = false;
           this.vmFormError = "";

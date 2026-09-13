@@ -87,26 +87,68 @@ export function shouldPreviewImpact({ mode, isRedirect, source }) {
   return Boolean(isRedirect && String(source || "").trim());
 }
 
-// deleteBlockedMessage maps a failed DELETE to the message the editor shows.
-// The 409 virtual_model_in_use answer is a force-confirm prompt, not an
-// error: it names the holders and points at the force action. Anything else
-// falls through to the store's generic failure message.
-export function deleteBlockedMessage(result, fallback) {
-  if (!result || result.status !== 409) {
-    return fallback();
+// apiErrorCode returns the machine-readable code of a failed admin call, ""
+// when the answer carries none. The envelope matters: getJSON/sendJSON answer
+// {ok, stale, status, data, res}, so the code rides in data.error.code —
+// reading a `body` property matched nothing.
+export function apiErrorCode(result) {
+  const error = result && result.data ? result.data.error : null;
+  if (!error || typeof error !== "object") {
+    return "";
   }
-  const code =
-    result.body &&
-    result.body.error &&
-    typeof result.body.error.code === "string"
-      ? result.body.error.code
-      : "";
-  if (code !== "virtual_model_in_use") {
-    return fallback();
+  return typeof error.code === "string" ? error.code : "";
+}
+
+// virtualModelErrorText renders a failed virtual-model write from its machine
+// code, "" when the code has no catalog entry yet — callers then show the
+// server message, which stays English for every backend surface (AGENTS.md:
+// localization is the frontend's job, structure is the backend's).
+export function virtualModelErrorText(result) {
+  if (apiErrorCode(result) === "virtual_model_locked") {
+    return m.vm_lock_change_blocked();
   }
-  const detail =
-    result.body && result.body.error
-      ? String(result.body.error.message || "")
-      : "";
-  return m.vm_delete_blocked_confirm({ detail });
+  return "";
+}
+
+// impactHolderCounts tallies the holders an impact payload reports, mirroring
+// the backend's "reachable by N credential(s) and M user path(s)" guard count:
+// every reported grant counts once, whatever its verdict (follow, potential or
+// unrestricted).
+export function impactHolderCounts(impact) {
+  const counts = { credentials: 0, userPaths: 0 };
+  const grants = impact && Array.isArray(impact.grants) ? impact.grants : [];
+  for (const grant of grants) {
+    if (grant && grant.kind === "credential") {
+      counts.credentials += 1;
+    } else if (grant && grant.kind === "user_path") {
+      counts.userPaths += 1;
+    }
+  }
+  return counts;
+}
+
+// deleteBlockedConfirm is the force-confirm sentence shown for a 409
+// virtual_model_in_use: the backend names the holders in permanently English
+// prose, so the sentence is built from the catalog plus the holder tally of
+// GET /admin/virtual-models/authorized-by (the inventory the endpoint itself
+// points at). An unavailable tally degrades to the count-free sentence instead
+// of leaking that prose.
+export function deleteBlockedConfirm(source, impact) {
+  const name = String(source || "").trim();
+  if (!impact) {
+    return m.vm_delete_blocked_confirm_unknown({ source: name });
+  }
+  const counts = impactHolderCounts(impact);
+  return m.vm_delete_blocked_confirm({
+    source: name,
+    credentials: counts.credentials,
+    userPaths: counts.userPaths,
+  });
+}
+
+// deleteBlockedNotice is the non-interactive counterpart of the confirm: the
+// models-page row switch reports the same block as a flash, where counts are
+// not at hand (no dialog, no preview fetch).
+export function deleteBlockedNotice(source) {
+  return m.vm_delete_blocked_notice({ source: String(source || "").trim() });
 }

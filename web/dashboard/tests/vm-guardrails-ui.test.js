@@ -188,18 +188,91 @@ test("lockToggleHelp explains what the lock freezes", () => {
 
 // --- delete guard: 409 -> force confirm --------------------------------------
 
-// The 409 handling itself lives in the store (network code); here the pure
-// decision is which message to show for which status.
-import { deleteBlockedMessage } from "../src/pages/models/vmImpactPreview.js";
+// The 409 handling itself lives in the store (network code); what the pure layer
+// owns is which code a failed answer carries and which sentence the force
+// confirm shows for it.
+import {
+  apiErrorCode,
+  deleteBlockedConfirm,
+  deleteBlockedNotice,
+  impactHolderCounts,
+  virtualModelErrorText,
+} from "../src/pages/models/vmImpactPreview.js";
 
-test("deleteBlockedMessage keys off the 409 code", () => {
-  const blocked = deleteBlockedMessage(
-    { status: 409, body: { error: { code: "virtual_model_in_use", message: "2 credential(s)" } } },
-    () => "fallback",
+// getJSON/sendJSON answer {ok, stale, status, data, res}, so the machine fields
+// ride in data.error. An earlier revision read a `body` property, which matched
+// nothing and silently made the force path unreachable — the envelope shape is
+// pinned here so that cannot come back.
+const IN_USE_ANSWER = {
+  ok: false,
+  status: 409,
+  data: {
+    error: {
+      code: "virtual_model_in_use",
+      param: "force",
+      message:
+        'virtual model "smart" is still reachable by 2 credential(s) and 1 user path(s); send force to delete it',
+    },
+  },
+};
+
+test("apiErrorCode reads the machine code from the admin envelope", () => {
+  assert.equal(apiErrorCode(IN_USE_ANSWER), "virtual_model_in_use");
+  assert.equal(apiErrorCode({ status: 409, data: {} }), "");
+  assert.equal(apiErrorCode({ status: 409, body: IN_USE_ANSWER.data }), "");
+  assert.equal(apiErrorCode(undefined), "");
+});
+
+test("impactHolderCounts tallies credentials and user paths", () => {
+  const impact = parseAuthorizedByResponse({
+    source: "smart",
+    grants: [
+      { kind: "credential", id: "a", change: "follow" },
+      { kind: "credential", id: "b", change: "unrestricted" },
+      { kind: "user_path", id: "/acme", change: "potential" },
+    ],
+  });
+  assert.deepEqual(impactHolderCounts(impact), { credentials: 2, userPaths: 1 });
+  assert.deepEqual(impactHolderCounts(null), { credentials: 0, userPaths: 0 });
+});
+
+test("deleteBlockedConfirm renders the tally instead of the backend prose", () => {
+  const impact = parseAuthorizedByResponse({
+    source: "smart",
+    grants: [
+      { kind: "credential", id: "a", change: "follow" },
+      { kind: "user_path", id: "/acme", change: "unrestricted" },
+    ],
+  });
+  const message = deleteBlockedConfirm("smart", impact);
+  assert.match(message, /smart/);
+  assert.match(message, /1/);
+  assert.match(message, /force|强制/);
+  assert.ok(
+    !message.includes("reachable by 2 credential(s)"),
+    `server message leaked into ${message}`,
   );
-  assert.notEqual(blocked, "fallback");
-  assert.match(blocked, /force|强制/);
-  assert.equal(deleteBlockedMessage({ status: 400, body: {} }, () => "fallback"), "fallback");
+  // A failed preview degrades to the count-free sentence, still naming the row.
+  const bare = deleteBlockedConfirm("smart", null);
+  assert.match(bare, /smart/);
+  assert.match(bare, /force|强制/);
+});
+
+test("deleteBlockedNotice names the row without counts", () => {
+  const notice = deleteBlockedNotice("oMLX/bge-m3-mlx-8bit");
+  assert.match(notice, /oMLX\/bge-m3-mlx-8bit/);
+});
+
+test("virtualModelErrorText maps the codes the dashboard renders itself", () => {
+  const locked = virtualModelErrorText({
+    status: 409,
+    data: { error: { code: "virtual_model_locked" } },
+  });
+  assert.ok(locked.length > 0);
+  assert.equal(
+    virtualModelErrorText({ status: 400, data: { error: { code: "unmapped_code" } } }),
+    "",
+  );
 });
 
 // --- alias badge (D4) ---------------------------------------------------------

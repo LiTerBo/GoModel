@@ -230,10 +230,13 @@ Redirects that shadow a model can be edited the same way — use the model row's
 fixed in configuration; rename them by editing the declaration.
 
 Deleting an alias that still has API keys or user paths authorized to reach it
-returns `409 Conflict` with an explanation of what references it. A **force
-delete** (`force: true` in the admin API or the corresponding dashboard action)
-bypasses the guard and removes the alias regardless of outstanding
-authorizations.
+returns `409 Conflict` with an explanation of what references it: the dashboard
+renders that prompt in the console language (the API itself always answers in
+English). A **force delete** (`force: true` in the admin API or the
+corresponding dashboard action) bypasses the guard and removes the alias
+regardless of outstanding authorizations. The guard covers redirects only —
+access policies resolve no name, so removing one (how the Models page puts a
+single model back on the shelf) is never gated.
 
 ## Lock an alias
 
