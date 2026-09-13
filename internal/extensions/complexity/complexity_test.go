@@ -221,7 +221,8 @@ func TestEngineSessionUnaffected(t *testing.T) {
 	// The engine is stateless: same request, same answer.
 	e := NewEngine(testConfig())
 	req := ext.RouteRequest{Candidates: pool(), Content: &ext.RouteContent{MessageCount: 2, CurrentChars: 50}}
-	if e.Select(req) != e.Select(req) {
-		t.Fatal("engine is not deterministic")
+	first, second := e.Select(req), e.Select(req)
+	if first != second {
+		t.Fatalf("engine is not deterministic: %q then %q", first, second)
 	}
 }
