@@ -96,7 +96,7 @@ func (e *InternalChatCompletionExecutor) ChatCompletion(ctx context.Context, req
 		e.finishAuditEntry(ctx, entry, start, workflow, req, resp, err, cacheType, meta)
 	}()
 
-	resolution, err := resolveRequestModelWithAuthorizer(ctx, e.provider, e.modelResolver, e.modelAuthorizer, requested)
+	resolution, err := resolveOrReuseRequestModel(ctx, e.provider, e.modelResolver, e.modelAuthorizer, requested)
 	if err != nil {
 		return nil, err
 	}

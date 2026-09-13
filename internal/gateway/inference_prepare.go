@@ -232,11 +232,17 @@ func (o *InferenceOrchestrator) ensureTranslatedRequestWorkflow(
 		}
 	}
 	// The workflow middleware resolves the model before the request body is
-	// parsed, so that resolution ran without the route summary an adaptive
+	// parsed, so that resolution ran without the route summary a content-aware
 	// selector needs. With the summary now on the context, re-resolve from the
 	// originally requested selector so complexity-aware selectors see the
 	// request content; a summary-less path (embeddings, admin) is unaffected.
-	if resolution != nil && ext.RouteContentFromContext(ctx) != nil && resolution.AliasApplied {
+	//
+	// Only resolvers that select on content are re-resolved. Every resolution
+	// advances an alias's round-robin cursor, so redoing one that chooses from
+	// the target list alone rotates the cursor twice for a single request and
+	// pins a two-target alias to one target.
+	if resolution != nil && ext.RouteContentFromContext(ctx) != nil && resolution.AliasApplied &&
+		resolutionNeedsRouteContent(ctx, o.modelResolver, resolution.Requested) {
 		reresolved, rerr := ResolveRequestModelWithAuthorizer(ctx, o.provider, o.modelResolver, o.modelAuthorizer, resolution.Requested)
 		if rerr == nil {
 			resolution = reresolved
