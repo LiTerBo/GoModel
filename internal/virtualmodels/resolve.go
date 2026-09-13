@@ -55,6 +55,28 @@ func (s *Service) ResolveModelForUserPath(ctx context.Context, requested core.Re
 	return resolution.Resolved, changed, nil
 }
 
+// RouteContentNeeded reports whether resolving requested depends on the request
+// body summary: adaptive and plugin strategies choose their target from request
+// content, so a resolution computed before the body was summarized has to be
+// redone. Every other strategy picks from the target list alone, and redoing
+// its resolution would rotate the round-robin cursor a second time for the same
+// request.
+func (s *Service) RouteContentNeeded(ctx context.Context, requested core.RequestedModelSelector) bool {
+	if s == nil || requested.ExplicitProvider {
+		return false
+	}
+	entry, ok := s.snapshot().findRedirect(requested.Model, core.UserPathFromContext(ctx), true)
+	if !ok {
+		return false
+	}
+	switch normalizeStrategy(entry.strategy) {
+	case StrategyAdaptive, StrategyPlugin:
+		return true
+	default:
+		return false
+	}
+}
+
 // ResolveRefreshTarget returns a redirect target without consulting the current
 // catalog so callers can refresh an unavailable target provider before normal
 // resolution is retried.

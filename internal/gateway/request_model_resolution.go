@@ -147,6 +147,24 @@ func ResolveRequestModelWithAuthorizer(
 	return resolution, nil
 }
 
+// routeContentResolver is an optional ModelResolver that knows whether a
+// resolution for a requested selector depends on the request body summary.
+type routeContentResolver interface {
+	RouteContentNeeded(ctx context.Context, requested core.RequestedModelSelector) bool
+}
+
+// resolutionNeedsRouteContent reports whether a resolution has to be redone now
+// that the request body summary is on the context. A resolver that cannot answer
+// is assumed to depend on content: skipping the re-resolve for a content-aware
+// selector would silently serve a target chosen without the request content.
+func resolutionNeedsRouteContent(ctx context.Context, resolver ModelResolver, requested core.RequestedModelSelector) bool {
+	aware, ok := resolver.(routeContentResolver)
+	if !ok {
+		return true
+	}
+	return aware.RouteContentNeeded(ctx, requested)
+}
+
 func refreshProviderModelsForResolution(
 	ctx context.Context,
 	provider core.RoutableProvider,

@@ -63,6 +63,54 @@ func resolveServiceModel(
 	return selector, nil
 }
 
+// requestModelResolutionFromContext returns the resolution the workflow
+// middleware already computed for this request, if any.
+func requestModelResolutionFromContext(ctx context.Context) *core.RequestModelResolution {
+	if workflow := core.GetWorkflow(ctx); workflow != nil {
+		return workflow.Resolution
+	}
+	return nil
+}
+
+// resolveOrReuseRequestModel returns the resolution this request already carries
+// when one exists for the same requested selector, authorizing it, and otherwise
+// resolves it from scratch.
+//
+// The workflow middleware resolves chat, responses and embeddings requests
+// before the executor runs. Resolving a second time is not free: every
+// consultation advances the alias's round-robin cursor, so a second one moves a
+// two-target alias onto its second target on every request and strands the first
+// until a failover. Reusing the cached resolution keeps the cursor advancing once
+// per request, and the explicit authorization keeps the access check that the
+// executor's resolve used to perform.
+func resolveOrReuseRequestModel(
+	ctx context.Context,
+	provider core.RoutableProvider,
+	resolver RequestModelResolver,
+	authorizer RequestModelAuthorizer,
+	requested core.RequestedModelSelector,
+) (*core.RequestModelResolution, error) {
+	if cached := requestModelResolutionFromContext(ctx); cached != nil && sameRequestedSelector(cached.Requested, requested) {
+		if authorizer != nil {
+			if err := authorizer.ValidateModelAccess(ctx, cached.ResolvedSelector); err != nil {
+				return nil, err
+			}
+		}
+		return cached, nil
+	}
+	return resolveRequestModelWithAuthorizer(ctx, provider, resolver, authorizer, requested)
+}
+
+// sameRequestedSelector reports whether two requested selectors address the same
+// model: a resolution computed for one must not be reused for another, or a body
+// rewritten between the middleware and the executor would execute the wrong
+// model.
+func sameRequestedSelector(a, b core.RequestedModelSelector) bool {
+	normalizedA := core.NewRequestedModelSelector(a.Model, a.ProviderHint)
+	normalizedB := core.NewRequestedModelSelector(b.Model, b.ProviderHint)
+	return normalizedA.Model == normalizedB.Model && normalizedA.ProviderHint == normalizedB.ProviderHint
+}
+
 func storeRequestModelResolution(c *echo.Context, resolution *core.RequestModelResolution) {
 	if c == nil || resolution == nil {
 		return
