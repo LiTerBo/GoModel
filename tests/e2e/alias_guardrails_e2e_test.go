@@ -162,18 +162,26 @@ func TestAliasCRUD_E2E(t *testing.T) {
 	assert.Equal(t, "smart", ab.Source)
 	assert.Empty(t, ab.Grants)
 
-	// 4. Lock alias (metadata-only change → 204)
+	// 4. Lock alias (metadata-only change → the alias survives it)
 	t.Log("Step 4: Lock alias via PUT locked:true")
 	r = put(t, map[string]any{"source": "smart", "locked": true})
-	require.True(t, r.StatusCode == http.StatusNoContent,
-		"lock expected 204, got %d", r.StatusCode)
+	// body() consumes the response, so it is read once per reply.
+	lockBody := body(t, r)
+	require.Equal(t, http.StatusOK, r.StatusCode, "lock: %s", lockBody)
+	assert.Contains(t, lockBody, `"locked":true`, "lock not applied: %s", lockBody)
+	// A metadata-only write keeps the stored pointing; it used to replace the
+	// alias with a pointing-less policy and silently drop it.
+	assert.Contains(t, lockBody, `"kind":"redirect"`, "lock dropped the redirect: %s", lockBody)
+	assert.Contains(t, lockBody, "test/gpt-4", "lock dropped the target: %s", lockBody)
 
 	// 5. Unlock and retarget in one request
 	t.Log("Step 5: Unlock (locked:false) and change target")
 	r = put(t, map[string]any{
 		"source": "smart", "target_model": "test/gpt-4-turbo", "locked": false,
 	})
-	require.Equal(t, http.StatusOK, r.StatusCode, "unlock+retarget: %s", body(t, r))
+	retargetBody := body(t, r)
+	require.Equal(t, http.StatusOK, r.StatusCode, "unlock+retarget: %s", retargetBody)
+	assert.Contains(t, retargetBody, "test/gpt-4-turbo", "retarget did not apply: %s", retargetBody)
 
 	// 6. Delete alias (no auth refs → 204)
 	t.Log("Step 6: Delete alias")

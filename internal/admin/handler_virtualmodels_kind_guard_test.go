@@ -8,10 +8,11 @@ import (
 	"github.com/enterpilot/gomodel/internal/virtualmodels"
 )
 
-// A stored redirect owns its source. A write that would take that source over
-// as an access policy drops the alias definition, so it has to say so
-// explicitly: the models page row switch sends {source, enabled} and used to
-// silently replace the alias with a policy (the masking-alias risk).
+// A stored redirect owns its source. A request that asks for a row with no
+// pointing (an explicit empty targets list) would replace the alias definition
+// with an access policy, so it has to say so with clear_targets. A write that
+// says nothing about the pointing is a metadata-only edit and keeps the stored
+// definition — that is what the models page row switch sends.
 
 // putVirtualModelBody wraps the package's putVirtualModel recorder with the
 // parsed error envelope, so a case can assert code and param.
@@ -24,10 +25,10 @@ func putVirtualModelBody(t *testing.T, h *Handler, body string) (int, errorBody)
 }
 
 func TestUpsertVirtualModelRedirectTakeoverNeedsGesture(t *testing.T) {
-	t.Run("the row switch payload is rejected and the alias survives", func(t *testing.T) {
+	t.Run("an emptied pointing is rejected and the alias survives", func(t *testing.T) {
 		h := newAuthorizedByHandler(t, nil, smartAlias())
 
-		code, body := putVirtualModelBody(t, h, `{"source":"smart","enabled":false}`)
+		code, body := putVirtualModelBody(t, h, `{"source":"smart","targets":[]}`)
 		if code != http.StatusConflict {
 			t.Fatalf("status = %d, want %d (body=%s)", code, http.StatusConflict, body.Error.Message)
 		}
@@ -46,6 +47,22 @@ func TestUpsertVirtualModelRedirectTakeoverNeedsGesture(t *testing.T) {
 		}
 		if stored.Kind() != virtualmodels.KindRedirect || len(stored.Targets) != 1 {
 			t.Fatalf("stored = %#v, want the redirect untouched", stored)
+		}
+	})
+
+	t.Run("a metadata-only write keeps the stored pointing", func(t *testing.T) {
+		h := newAuthorizedByHandler(t, nil, smartAlias())
+
+		code, body := putVirtualModelBody(t, h, `{"source":"smart","enabled":false}`)
+		if code >= 400 {
+			t.Fatalf("status = %d, error = %#v", code, body.Error)
+		}
+		stored, ok := h.virtualModels.Get("smart")
+		if !ok || stored.Kind() != virtualmodels.KindRedirect || len(stored.Targets) != 1 {
+			t.Fatalf("stored = %#v, want the redirect with its pointing", stored)
+		}
+		if stored.Enabled {
+			t.Fatalf("stored.Enabled = true, want the switch the caller sent")
 		}
 	})
 

@@ -37,8 +37,11 @@ type upsertVirtualModelRequest struct {
 	// Failover retries a failed request on the remaining targets. Omitted
 	// means enabled; false serves the chosen target only.
 	Failover    *bool    `json:"failover,omitempty"`
-	UserPaths   []string `json:"user_paths,omitempty"`
-	Description string   `json:"description,omitempty"`
+	UserPaths []string `json:"user_paths,omitempty"`
+	// Description is a pointer so a write that only touches other fields keeps
+	// the stored one: the editor sends the whole row, an API caller flipping
+	// `locked` does not.
+	Description *string `json:"description,omitempty"`
 	// Slowdown is an extra-time factor from 0.1 to 10; zero disables it.
 	Slowdown *float64 `json:"slowdown,omitempty"`
 	Enabled  *bool    `json:"enabled,omitempty"`
@@ -48,11 +51,11 @@ type upsertVirtualModelRequest struct {
 	// off).
 	Locked *bool `json:"locked,omitempty"`
 	Unlock bool  `json:"unlock,omitempty"`
-	// ClearTargets is the explicit gesture that lets a request take a stored
-	// redirect's source over as an access policy (the row leaves the routing
-	// table; other settings are kept). Without it such a write is rejected:
-	// source is the primary key, so a per-model access write used to replace
-	// the alias definition with a policy and drop the pointing.
+	// ClearTargets is the explicit gesture that turns a stored redirect into an
+	// access policy (the row leaves the routing table; other settings are kept).
+	// source is the primary key, so a request that asks for a row with no
+	// pointing would otherwise replace the alias definition and drop it. A
+	// write that says nothing about the pointing keeps the stored one instead.
 	ClearTargets bool `json:"clear_targets,omitempty"`
 }
 
@@ -139,7 +142,7 @@ func (h *Handler) UpsertVirtualModel(c *echo.Context) error {
 	if reason := h.lockRejection(stored, vm, req.Unlock, req.Locked); reason != "" {
 		return handleError(c, lockedVirtualModelError(reason))
 	}
-	if source := kindChangeRejection(stored, vm, req.ClearTargets); source != "" {
+	if source := kindChangeRejection(stored, req); source != "" {
 		return handleError(c, virtualModelKindChangeError(source))
 	}
 	oldSource := strings.TrimSpace(req.OldSource)
@@ -246,10 +249,12 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 		SessionAffinity: req.SessionAffinity,
 		Failover:        req.Failover,
 		UserPaths:       req.UserPaths,
-		Description:     strings.TrimSpace(req.Description),
 		Slowdown:        req.Slowdown,
 		Enabled:         h.virtualModels.ResolveUpsertEnabled(source, req.OldSource, req.Enabled),
 		Locked:          h.virtualModels.ResolveUpsertLocked(source, req.OldSource, req.Locked),
+	}
+	if req.Description != nil {
+		vm.Description = strings.TrimSpace(*req.Description)
 	}
 
 	targets, err := buildVirtualModelTargets(req)
@@ -257,10 +262,63 @@ func (h *Handler) buildVirtualModelUpsert(source string, req upsertVirtualModelR
 		return virtualmodels.VirtualModel{}, err
 	}
 	vm.Targets = targets
+	h.inheritStoredDefinition(&vm, source, req)
 	if err := h.validateStrategyPlugin(vm); err != nil {
 		return virtualmodels.VirtualModel{}, err
 	}
 	return vm, nil
+}
+
+// pointingOmitted reports whether the request says nothing about the row's
+// pointing: neither target_model nor a non-empty targets list.
+func pointingOmitted(req upsertVirtualModelRequest) bool {
+	return strings.TrimSpace(req.TargetModel) == "" && len(req.Targets) == 0
+}
+
+// emptyPointingSent reports an explicitly empty targets list ([] rather than an
+// omitted field): the caller asked for a row with no pointing, which is the
+// clear that needs the clear_targets gesture when a redirect is stored.
+func emptyPointingSent(req upsertVirtualModelRequest) bool {
+	return req.Targets != nil && len(req.Targets) == 0
+}
+
+// inheritStoredDefinition keeps a metadata-only write from dropping the row's
+// definition. When the request says nothing about the pointing and is not the
+// explicit clear, its subject is metadata (lock, enabled, description, user
+// paths): everything it does not carry stays as stored. A write that sends its
+// own pointing describes the whole row instead — replacing a policy with a
+// redirect is a replacement, not a merge.
+func (h *Handler) inheritStoredDefinition(vm *virtualmodels.VirtualModel, source string, req upsertVirtualModelRequest) {
+	if vm == nil || h.virtualModels == nil {
+		return
+	}
+	if !pointingOmitted(req) || req.ClearTargets {
+		return
+	}
+	stored, ok := h.virtualModels.Get(strings.TrimSpace(source))
+	if (!ok || stored == nil) && strings.TrimSpace(req.OldSource) != "" {
+		stored, ok = h.virtualModels.Get(strings.TrimSpace(req.OldSource))
+	}
+	if !ok || stored == nil {
+		return
+	}
+	if len(stored.Targets) > 0 {
+		vm.Targets = append([]virtualmodels.Target(nil), stored.Targets...)
+		vm.Strategy = stored.Strategy
+		vm.StrategyPlugin = stored.StrategyPlugin
+		vm.StrategyConfig = stored.StrategyConfig
+		vm.SessionAffinity = stored.SessionAffinity
+		vm.Failover = stored.Failover
+	}
+	if req.Description == nil {
+		vm.Description = stored.Description
+	}
+	if req.UserPaths == nil {
+		vm.UserPaths = append([]string(nil), stored.UserPaths...)
+	}
+	if req.Slowdown == nil {
+		vm.Slowdown = stored.Slowdown
+	}
 }
 
 // lockRejection reports why a locked virtual model rejects this write, or ""
@@ -285,16 +343,18 @@ func (h *Handler) lockRejection(stored *virtualmodels.VirtualModel, next virtual
 	return fmt.Sprintf("virtual model %q is locked; send an explicit unlock to change its targets or strategy", stored.Source)
 }
 
-// kindChangeRejection guards a stored redirect's source. Taking it over as an
-// access policy drops the alias definition (source is the primary key on every
-// store backend), so the request has to carry the explicit gesture. A policy
-// turning into a redirect, or a redirect writing a redirect, takes no name
-// away and needs no gesture. Returns "" when the write may proceed.
-func kindChangeRejection(stored *virtualmodels.VirtualModel, next virtualmodels.VirtualModel, clearTargets bool) string {
-	if clearTargets || stored == nil {
+// kindChangeRejection reports the stored source a write would take over as an
+// access policy, or "" when the write is allowed. source is the primary key on
+// every store backend, so a request that asks for a row with no pointing (an
+// explicit empty targets list) while a redirect is stored replaces the alias
+// definition and drops it: that needs clear_targets. A write that says nothing
+// about the pointing keeps the stored one instead (see buildVirtualModelUpsert),
+// and a policy turning into a redirect takes no name away.
+func kindChangeRejection(stored *virtualmodels.VirtualModel, req upsertVirtualModelRequest) string {
+	if req.ClearTargets || stored == nil || len(stored.Targets) == 0 {
 		return ""
 	}
-	if stored.Kind() != virtualmodels.KindRedirect || next.Kind() != virtualmodels.KindPolicy {
+	if !emptyPointingSent(req) {
 		return ""
 	}
 	return stored.Source
