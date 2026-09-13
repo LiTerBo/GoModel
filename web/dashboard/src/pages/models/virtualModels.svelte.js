@@ -32,6 +32,8 @@ import { buildAliasTogglePayload, buildModelTogglePayload } from "./vmForm.js";
 import {
   apiErrorCode,
   deleteBlockedNotice,
+  deleteForcePlan,
+  parseAuthorizedByResponse,
   virtualModelErrorText,
 } from "./vmImpactPreview.js";
 
@@ -551,46 +553,113 @@ class VirtualModelsStore {
 
     this.rowDeletingKey = options.rowKey;
 
+    const source = String(
+      (options.payload && options.payload.source) || "",
+    ).trim();
+
     try {
-      const result = await sendJSON(
-        "/admin/virtual-models",
-        options.method,
-        options.payload,
-        {
-          label: options.operation,
-        },
-      );
-      if (result.status === 503) {
-        this.virtualModelsAvailable = false;
-        flash.error(m.models_unavailable());
+      let forcePending = false;
+      // Two sends at most: the plain attempt, then the forced retry the in-use
+      // guard asks for. Every other outcome ends here with an error flash.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await sendJSON(
+          "/admin/virtual-models",
+          options.method,
+          forcePending ? { ...options.payload, force: true } : options.payload,
+          {
+            label: options.operation,
+          },
+        );
+        if (result.status === 503) {
+          this.virtualModelsAvailable = false;
+          flash.error(m.models_unavailable());
+          return;
+        }
+        if (!(options.ignoreNotFound && result.status === 404)) {
+          if (result.stale) {
+            return;
+          }
+          if (!result.ok) {
+            const plan = await this.deleteGuardPlan(result, {
+              forcePending,
+              source,
+              payload: options.payload,
+            });
+            if (plan && window.confirm(plan.confirmMessage)) {
+              forcePending = true;
+              continue;
+            }
+            flash.error(
+              result.status === 401
+                ? m.common_authentication_required()
+                : plan
+                  ? deleteBlockedNotice(source)
+                  : this.virtualModelFailureText(
+                      result,
+                      source,
+                      options.failureMessage,
+                    ),
+            );
+            return;
+          }
+        }
+        this.virtualModelsAvailable = true;
+
+        flash.success(options.notice);
+        void Promise.all([
+          modelsStore.fetchModels(),
+          this.fetchVirtualModels(),
+        ]);
         return;
       }
-      if (!(options.ignoreNotFound && result.status === 404)) {
-        if (result.stale) {
-          return;
-        }
-        if (!result.ok) {
-          flash.error(
-            result.status === 401
-              ? m.common_authentication_required()
-              : this.virtualModelFailureText(
-                  result,
-                  (options.payload && options.payload.source) || "",
-                  options.failureMessage,
-                ),
-          );
-          return;
-        }
-      }
-      this.virtualModelsAvailable = true;
-
-      flash.success(options.notice);
-      void Promise.all([modelsStore.fetchModels(), this.fetchVirtualModels()]);
     } catch (e) {
       console.error(options.failureMessage, e);
       flash.error(options.failureMessage);
     } finally {
       this.rowDeletingKey = "";
+    }
+  }
+
+  // deleteGuardPlan is the shared guard decision plus the tally it needs. The
+  // inventory is fetched only when the answer really is the in-use guard, so a
+  // plain failure costs no extra request; null means "render this failure as an
+  // error", a plan means "confirm, then resend with force".
+  async deleteGuardPlan(result, { forcePending, source, payload }) {
+    if (forcePending || result.status !== 409) {
+      return null;
+    }
+    if (apiErrorCode(result) !== "virtual_model_in_use") {
+      return null;
+    }
+    return deleteForcePlan(result, {
+      forcePending,
+      source,
+      payload,
+      impact: await this.fetchDeleteImpact(source),
+    });
+  }
+
+  // fetchDeleteImpact loads a stored row's holder inventory for the delete
+  // guard; no new_targets, so the backend previews the definition it will
+  // delete — the same set its 409 count comes from. null when unavailable, so
+  // callers degrade to the count-free sentence instead of guessing.
+  async fetchDeleteImpact(source) {
+    const name = String(source || "").trim();
+    if (!name) {
+      return null;
+    }
+    try {
+      const params = new URLSearchParams({ source: name });
+      const result = await getJSON(
+        "/admin/virtual-models/authorized-by?" + params.toString(),
+        { label: "delete impact" },
+      );
+      if (!result.ok || result.stale) {
+        return null;
+      }
+      return parseAuthorizedByResponse(result.data);
+    } catch {
+      return null;
     }
   }
 }

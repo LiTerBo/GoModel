@@ -43,7 +43,7 @@ import {
 } from "./vmForm.js";
 import {
   apiErrorCode,
-  deleteBlockedConfirm,
+  deleteForcePlan,
   groupImpactGrants,
   parseAuthorizedByResponse,
   shouldPreviewImpact,
@@ -169,29 +169,9 @@ class VirtualModelEditorStore {
     }
   }
 
-  // fetchImpactInventory loads the stored row's holder inventory for the delete
-  // guard; no new_targets, so the backend previews the definition it will
-  // delete — the same set its 409 count comes from. null when unavailable, so
-  // the caller can degrade instead of guessing.
-  async fetchImpactInventory(source) {
-    const name = String(source || "").trim();
-    if (!name) {
-      return null;
-    }
-    try {
-      const params = new URLSearchParams({ source: name });
-      const result = await getJSON(
-        "/admin/virtual-models/authorized-by?" + params.toString(),
-        { label: "delete impact" },
-      );
-      if (!result.ok || result.stale) {
-        return null;
-      }
-      return parseAuthorizedByResponse(result.data);
-    } catch {
-      return null;
-    }
-  }
+  // fetchImpactInventory lived here; the models-page row needs the same
+  // inventory for its own delete guard, so the fetch moved to the store
+  // (virtualModels.fetchDeleteImpact) and both entries call that one copy.
 
   // toggleVmFormUnlock flips the "retarget and unlock" gesture. It is only
   // reachable while the stored row is locked; switching it on asks once.
@@ -768,7 +748,12 @@ class VirtualModelEditorStore {
     if (!source || !this.vmFormHasExisting) {
       return;
     }
-    if (!window.confirm(m.models_remove_policy_confirm({ source }))) {
+    // The forced retry re-enters this method right after the guard's confirm,
+    // so the plain "remove the virtual model?" prompt is asked only once.
+    if (
+      !this.vmDeleteForcePending &&
+      !window.confirm(m.models_remove_policy_confirm({ source }))
+    ) {
       return;
     }
 
@@ -790,19 +775,22 @@ class VirtualModelEditorStore {
         return;
       }
       if (result.status === 409 && !this.vmDeleteForcePending) {
-        // Only the in-use guard is a force-confirm prompt. Any other 409 (a
-        // server-side lock, say) is an error the operator has to fix first.
+        // One shared decision with the models-page row (deleteForcePlan): the
+        // in-use guard is a force-confirm prompt, any other 409 (a server-side
+        // lock, say) is an error the operator has to fix first.
         if (apiErrorCode(result) !== "virtual_model_in_use") {
           this.vmFormError =
             virtualModelErrorText(result) ||
             errorMessage(result, m.models_remove_failed());
           return;
         }
-        const confirmMessage = deleteBlockedConfirm(
+        const plan = deleteForcePlan(result, {
+          forcePending: this.vmDeleteForcePending,
           source,
-          await this.fetchImpactInventory(source),
-        );
-        if (window.confirm(confirmMessage)) {
+          payload: { source },
+          impact: await virtualModels.fetchDeleteImpact(source),
+        });
+        if (plan && window.confirm(plan.confirmMessage)) {
           this.vmDeleteForcePending = true;
           this.vmDeleting = false;
           this.vmFormError = "";
@@ -816,6 +804,10 @@ class VirtualModelEditorStore {
           return;
         }
         if (!result.ok) {
+          // A forced attempt that still failed must not leave the flag on:
+          // the next delete would then skip the guard's confirm and resend
+          // force unconditionally.
+          this.vmDeleteForcePending = false;
           this.vmFormError =
             result.status === 401
               ? m.common_authentication_required()

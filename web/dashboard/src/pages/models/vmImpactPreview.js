@@ -152,3 +152,26 @@ export function deleteBlockedConfirm(source, impact) {
 export function deleteBlockedNotice(source) {
   return m.vm_delete_blocked_notice({ source: String(source || "").trim() });
 }
+
+// deleteForcePlan decides the delete guard's interactive step: a 409
+// virtual_model_in_use that has not been forced yet yields the force-confirm
+// sentence plus the payload to resend, anything else yields null so the caller
+// renders it as an error. Both delete entries — the models-page row action and
+// the editor — consume this one decision; the row used to stop at the notice
+// alone, which left the page it was clicked on with no way to force.
+export function deleteForcePlan(result, { forcePending, source, impact, payload }) {
+  if (forcePending) {
+    return null;
+  }
+  if (!result || result.status !== 409) {
+    return null;
+  }
+  if (apiErrorCode(result) !== "virtual_model_in_use") {
+    return null;
+  }
+  const name = String(source || "").trim();
+  return {
+    confirmMessage: deleteBlockedConfirm(name, impact),
+    retryPayload: { ...(payload || {}), source: name, force: true },
+  };
+}
