@@ -489,6 +489,18 @@ export function normalizeUserPaths(raw) {
     .filter(Boolean);
 }
 
+// withRedirectClearGesture adds the explicit gesture the backend requires when a
+// write takes a stored redirect's source over as an access policy (see
+// kindChangeRejection in internal/admin). An alias form emptied by the operator
+// is such a write; a per-model access write aimed at a masked selector is not,
+// and the backend keeps rejecting that one.
+export function withRedirectClearGesture(payload, { isRedirect, wasRedirect }) {
+  if (isRedirect || !wasRedirect) {
+    return payload;
+  }
+  return { ...payload, clear_targets: true };
+}
+
 // ---- API payload builders ----
 
 // buildVirtualModelSavePayload assembles the unified editor's PUT body: a

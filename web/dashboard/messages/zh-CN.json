@@ -1272,6 +1272,7 @@
   "vm_delete_blocked_confirm": "仍被使用 ——「{source}」可被 {credentials} 个凭据、{userPaths} 条用户路径调用。仍要删除（强制）吗？",
   "vm_delete_blocked_confirm_unknown": "仍被使用 ——「{source}」可被凭据或用户路径调用。仍要删除（强制）吗？",
   "vm_delete_blocked_notice": "「{source}」仍可被凭据或用户路径调用，需要强制删除。",
+  "vm_kind_change_blocked": "「{source}」由虚拟模型（别名/重定向）接管：请用「编辑 redirect」调整指向，或先移除该重定向。",
   "vm_alias_follows_badge": "跟随别名",
   "vm_alias_follows_title": "{name} 当前指向：{targets}",
   "models_category_all": "模型",

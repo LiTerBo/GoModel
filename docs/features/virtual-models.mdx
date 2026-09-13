@@ -229,6 +229,13 @@ Redirects that shadow a model can be edited the same way — use the model row's
 **Edit redirect** action. Virtual models declared as code keep their `source`
 fixed in configuration; rename them by editing the declaration.
 
+A shadowed model row offers **no access switch**. That switch writes an access
+policy under the row's own selector, and the selector is the redirect's `source`
+— the primary key — so the write would replace the redirect with a policy and
+drop its pointing. Use the row's **Edit redirect** action to change the
+pointing, or **Remove redirect** to retire the shadow on purpose; the admin API
+asks for the same explicit intent as `clear_targets: true`.
+
 Deleting an alias that still has API keys or user paths authorized to reach it
 returns `409 Conflict` with an explanation of what references it: the dashboard
 renders that prompt in the console language (the API itself always answers in

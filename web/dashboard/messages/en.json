@@ -1332,6 +1332,7 @@
   "vm_delete_blocked_confirm": "Still in use — \"{source}\" is reachable by {credentials} credential(s) and {userPaths} user path(s). Delete anyway (force)?",
   "vm_delete_blocked_confirm_unknown": "Still in use — \"{source}\" is reachable by credentials or user paths. Delete anyway (force)?",
   "vm_delete_blocked_notice": "\"{source}\" is still reachable by credentials or user paths; a forced delete is required.",
+  "vm_kind_change_blocked": "\"{source}\" is owned by a virtual model (alias/redirect). Use \"Edit redirect\" to change its pointing, or remove the redirect first.",
   "vm_alias_follows_badge": "follows alias",
   "vm_alias_follows_title": "{name} currently points to: {targets}",
   "models_category_all": "Models",

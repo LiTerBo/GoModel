@@ -534,6 +534,16 @@ export function aliasRowCanRemove(row) {
   );
 }
 
+// rowAccessToggleVisible reports whether the row's access switch may be shown.
+// A masking row (a concrete model whose selector is also an alias source) is
+// owned by that alias: the switch would write an access policy under the same
+// source, and source is the primary key, so it replaced the alias definition
+// with a policy and dropped the pointing. Such rows use the redirect controls
+// instead (edit / remove redirect).
+export function rowAccessToggleVisible(row) {
+  return !(row && !row.is_alias && row.masking_alias);
+}
+
 export function rowRedirectCanRemove(row) {
   return Boolean(
     row &&

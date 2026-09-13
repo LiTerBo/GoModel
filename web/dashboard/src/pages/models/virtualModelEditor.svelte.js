@@ -40,6 +40,7 @@ import {
 } from "./vmForm.js";
 import {
   applyLockFields,
+  withRedirectClearGesture,
 } from "./vmForm.js";
 import {
   apiErrorCode,
@@ -87,6 +88,9 @@ class VirtualModelEditorStore {
   vmFormUnlockRequested = $state(false);
   // Set while the delete force-confirm dialog from a 409 is on screen.
   vmDeleteForcePending = $state(false);
+  // Whether the stored row this editor opened on is a redirect, so emptying the
+  // form is offered as the explicit kind change the backend asks for.
+  vmFormStoredRedirect = $state(false);
 
   // vmImpactGroups buckets the loaded grants for the preview template. Empty
   // while nothing is loaded.
@@ -379,6 +383,8 @@ class VirtualModelEditorStore {
     this.vmFormLocked = false;
     this.vmFormUnlockRequested = false;
     this.vmDeleteForcePending = false;
+    // Per-open state: only openVirtualModelEditAlias sets it back to true.
+    this.vmFormStoredRedirect = false;
     this.vmForm = defaultVirtualModelForm();
   }
 
@@ -412,6 +418,7 @@ class VirtualModelEditorStore {
     this.vmFormMode = "edit";
     this.vmFormSourceLocked = false;
     this.vmFormHasExisting = true;
+    this.vmFormStoredRedirect = true;
     this.vmFormManaged = Boolean(alias.managed);
     this.vmFormOriginalSource = alias.name || "";
     this.vmFormDisplayName = alias.name || "";
@@ -687,11 +694,18 @@ class VirtualModelEditorStore {
 
     // Lock fields: include or omit the lock gesture.
     applyLockFields(payload, this.vmForm, this.vmFormLocked);
+    // An alias form the operator emptied is a redirect -> policy write: the
+    // backend only accepts the kind change with this gesture, and the row keeps
+    // its other settings.
+    const putPayload = withRedirectClearGesture(payload, {
+      isRedirect: built.isRedirect,
+      wasRedirect: this.vmFormStoredRedirect,
+    });
 
     this.vmSubmitting = true;
 
     try {
-      const result = await sendJSON("/admin/virtual-models", "PUT", payload, {
+      const result = await sendJSON("/admin/virtual-models", "PUT", putPayload, {
         label: "virtual model",
       });
       if (result.status === 503) {
@@ -706,7 +720,7 @@ class VirtualModelEditorStore {
         this.vmFormError =
           result.status === 401
             ? m.common_authentication_required()
-            : virtualModelErrorText(result) ||
+            : virtualModelErrorText(result, putPayload.source) ||
               errorMessage(result, m.models_save_failed());
         return;
       }

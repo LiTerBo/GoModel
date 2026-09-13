@@ -102,12 +102,24 @@ export function apiErrorCode(result) {
 // virtualModelErrorText renders a failed virtual-model write from its machine
 // code, "" when the code has no catalog entry yet — callers then show the
 // server message, which stays English for every backend surface (AGENTS.md:
-// localization is the frontend's job, structure is the backend's).
-export function virtualModelErrorText(result) {
-  if (apiErrorCode(result) === "virtual_model_locked") {
+// localization is the frontend's job, structure is the backend's). source is
+// only needed by the codes whose sentence names the row.
+export function virtualModelErrorText(result, source) {
+  const code = apiErrorCode(result);
+  if (code === "virtual_model_locked") {
     return m.vm_lock_change_blocked();
   }
+  if (code === "virtual_model_kind_change") {
+    return kindChangeBlockedText(source);
+  }
   return "";
+}
+
+// kindChangeBlockedText renders the redirect-takeover guard: the write aimed at
+// a selector that a virtual model owns. Saying which model owns it is what
+// tells the operator to edit the redirect instead of the model row.
+export function kindChangeBlockedText(source) {
+  return m.vm_kind_change_blocked({ source: String(source || "").trim() });
 }
 
 // impactHolderCounts tallies the holders an impact payload reports, mirroring

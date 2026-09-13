@@ -14,6 +14,7 @@
   hasAccessOverride,
   modelOverrideEditButtonClass,
   modelOverrideEditButtonLabel,
+  rowAccessToggleVisible,
   rowAnchorID,
   rowIsManaged,
   rowRedirectCanRemove,
@@ -348,7 +349,9 @@ import {
       </div>
     {:else}
       <div class="alias-actions-cell model-list-actions">
-        <AccessToggle {row} />
+        {#if rowAccessToggleVisible(row)}
+          <AccessToggle {row} />
+        {/if}
         {#if pricingOverridesAvailable}
           <TableActionButton
             label={pricingOverrides.modelPricingButtonLabel(m.models_model_pricing_for({ name: row.display_name }), pricingOverrides.hasModelPricingOverride(row))}

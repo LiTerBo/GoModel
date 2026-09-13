@@ -15,6 +15,7 @@ import {
   groupDisplayModels,
   isGroupExpanded,
   rowAccessSelector,
+  rowAccessToggleVisible,
   rowIsManaged,
   rowToggleBlocked,
   toggleAllGroups,
@@ -33,6 +34,7 @@ import {
   apiErrorCode,
   deleteBlockedNotice,
   deleteForcePlan,
+  kindChangeBlockedText,
   parseAuthorizedByResponse,
   virtualModelErrorText,
 } from "./vmImpactPreview.js";
@@ -357,7 +359,7 @@ class VirtualModelsStore {
     if (apiErrorCode(result) === "virtual_model_in_use") {
       return deleteBlockedNotice(source);
     }
-    return virtualModelErrorText(result) || errorMessage(result, fallback);
+    return virtualModelErrorText(result, source) || errorMessage(result, fallback);
   }
 
   async toggleRowEnabled(row) {
@@ -371,6 +373,18 @@ class VirtualModelsStore {
       // The disabled switch already reflects this; the guard keeps a stale
       // click (or a programmatic call) from writing a policy that cannot act.
       flash.success(m.models_toggle_provider_paused());
+      return;
+    }
+    if (!rowAccessToggleVisible(row)) {
+      // A masking row belongs to its alias. The switch would write an access
+      // policy under the alias's source and drop the alias definition, so the
+      // button is not rendered; this keeps a stale click from writing one.
+      flash.error(
+        kindChangeBlockedText(
+          (row.masking_alias && row.masking_alias.name) ||
+            rowAccessSelector(row),
+        ),
+      );
       return;
     }
     if (rowIsManaged(row)) {
@@ -536,6 +550,10 @@ class VirtualModelsStore {
         description: String(alias.description || "").trim(),
         enabled: alias.enabled !== false,
         ...(alias.slowdown != null ? { slowdown: Number(alias.slowdown) } : {}),
+        // Removing the redirect is the kind change the backend only accepts
+        // with the explicit gesture: without it the write would look like an
+        // accidental access policy aimed at the alias's source.
+        clear_targets: true,
       },
       operation: "virtual model redirect",
       failureMessage: m.models_redirect_remove_failed(),
