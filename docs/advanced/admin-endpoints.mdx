@@ -550,6 +550,187 @@ and [Workflows](/advanced/workflows#guardrail-steps). The plugin and guardrail
 endpoints answer `503` with code `feature_unavailable` while the plugin system
 is off (`PLUGINS_ENABLED=false` and `GUARDRAILS_ENABLED=false`).
 
+### Virtual model endpoints
+
+Virtual models are managed under `/admin/virtual-models`. These endpoints
+require the global admin scope (regular user-path scoped credentials get
+`403 admin_scope_denied`).
+
+| Method   | Path                                              | Description                                                    |
+| -------- | ------------------------------------------------- | -------------------------------------------------------------- |
+| `GET`    | `/admin/virtual-models`                           | List virtual models (redirects and access policies)            |
+| `PUT`    | `/admin/virtual-models`                           | Create, update, or rename one virtual model                    |
+| `DELETE` | `/admin/virtual-models`                           | Delete one virtual model                                       |
+| `GET`    | `/admin/virtual-models/authorized-by`             | Impact preview: who a proposed change reaches                  |
+
+#### `GET /admin/virtual-models`
+
+Lists every virtual model — both redirects (aliases that point at concrete
+models) and access policies (per-virtual-model allow-lists that restrict which
+user paths or API keys can reach it).
+
+**Response `200`:**
+
+```json
+[
+  {
+    "source": "smart",
+    "kind": "redirect",
+    "targets": [{"provider": "openai", "model": "gpt-4o", "weight": 1}],
+    "strategy": "round_robin",
+    "enabled": true,
+    "locked": false,
+    "description": "Smart model alias",
+    "scope_kind": "global",
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-06-01T00:00:00Z"
+  }
+]
+```
+
+**Error codes:** `401` (unauthenticated), `503` (feature unavailable).
+
+#### `PUT /admin/virtual-models`
+
+Creates, updates, or renames one virtual model. Send `old_source` to rename.
+Fields omitted from the body keep their stored value.
+
+**Request body:**
+
+| Field               | Type                | Description                                                        |
+| ------------------- | ------------------- | ------------------------------------------------------------------ |
+| `source`            | `string`            | **Required.** Virtual model name (alias)                           |
+| `old_source`        | `string`            | Previous name — set to trigger a rename                            |
+| `target_model`      | `string`            | Single redirect target (e.g. `gpt-4o`) — mutually exclusive with `targets` |
+| `targets`           | `array`             | Load-balancing destinations: `[{provider, model, weight?}]`        |
+| `strategy`          | `string`            | `round_robin`, `cost`, `failover`, `adaptive`, or `plugin`         |
+| `strategy_plugin`   | `string`            | Routing-strategy plugin name (when `strategy` is `plugin`)         |
+| `strategy_config`   | `object`            | Per-virtual-model plugin configuration                             |
+| `session_affinity`  | `bool`              | Keep requests of one session on the same target (omitted = enabled)|
+| `failover`          | `bool`              | Retry failed request on remaining targets (omitted = enabled)      |
+| `user_paths`        | `string[]`          | Restrict the alias to these user paths                             |
+| `description`       | `string`            | Human-readable label                                               |
+| `slowdown`          | `float`             | Extra-time factor 0.1–10 (zero disables it)                        |
+| `enabled`           | `bool`              | Whether requests can reach this alias                              |
+| `locked`            | `bool`              | Freezes the pointing (see below)                                   |
+| `unlock`            | `bool`              | Explicit gesture to edit a locked row while keeping it locked      |
+
+**The `locked` field.** A locked virtual model rejects writes that change the
+pointing — the targets, their weights and order, and the strategy that picks
+among them. Edits to the description, user paths, slowdown, or enabled flag
+are still accepted. To change the pointing of a locked row, send
+`unlock: true` (keeps the locked state) or `locked: false` (turns locking
+off) in the same request.
+
+**Response `200`:** The updated virtual model as shown in `GET /admin/virtual-models`.
+
+**Response `204`:** Returned when the upsert produces no visible row (access
+policy removed).
+
+**Error codes:**
+
+| Code | Description                                                        |
+| ---- | ------------------------------------------------------------------ |
+| `400`| Invalid input — missing source, malformed targets, validation error|
+| `401`| Unauthenticated                                                    |
+| `409`| **`virtual_model_locked`** — resolution config change on a locked row without `unlock` |
+| `502`| Store failure                                                      |
+| `503`| Feature unavailable                                                |
+
+#### `DELETE /admin/virtual-models`
+
+Removes one virtual model. The body identifies it by `source`.
+
+**Request body:**
+
+```json
+{
+  "source": "smart",
+  "force": false
+}
+```
+
+| Field    | Type     | Description                                                        |
+| -------- | -------- | ------------------------------------------------------------------ |
+| `source` | `string` | **Required.** Virtual model name to remove                         |
+| `force`  | `bool`   | Override the reachability guard (see below)                        |
+
+**The `force` parameter.** When credentials or user-path policies still reach
+the virtual model, the delete is rejected with `409 virtual_model_in_use`
+naming the counts. Set `force: true` to override the guard and take the
+alias away from the listed holders. Use `GET /admin/virtual-models/authorized-by?source={name}`
+to preview who will lose access before force-deleting.
+
+**Response `204`:** No content on success.
+
+**Error codes:**
+
+| Code | Description                                                        |
+| ---- | ------------------------------------------------------------------ |
+| `400`| Invalid input — missing source                                     |
+| `401`| Unauthenticated                                                    |
+| `404`| Virtual model not found                                            |
+| `409`| **`virtual_model_in_use`** — credentials or user paths still reach the model; send `force` |
+| `502`| Store failure                                                      |
+| `503`| Feature unavailable                                                |
+
+#### `GET /admin/virtual-models/authorized-by`
+
+Impact preview endpoint that reports which policy holders (API keys and
+user-path policies) a virtual model reaches. With `new_targets`, it evaluates
+a proposed edit before saving, so the operator can see who would gain or
+lose access.
+
+**Query parameters:**
+
+| Parameter     | Type     | Required | Description                                                     |
+| ------------- | -------- | -------- | --------------------------------------------------------------- |
+| `source`      | `string` | Yes      | Virtual model source (alias name)                                |
+| `new_targets` | `string` | No       | Comma-separated proposed targets (`provider/model`); defaults to stored targets |
+
+**Response `200`:**
+
+```json
+{
+  "source": "smart",
+  "old_targets": ["openai/gpt-4o"],
+  "new_targets": ["anthropic/claude-sonnet-4"],
+  "grants": [
+    {
+      "kind": "credential",
+      "id": "ak_abc123",
+      "label": "prod-key",
+      "path": "/acme",
+      "change": "follow",
+      "matched_by": "name",
+      "matched": ["smart"]
+    }
+  ],
+  "summary": {
+    "follow": 1,
+    "potential": 0,
+    "unrestricted": 0
+  }
+}
+```
+
+Each grant's `change` field classifies the impact:
+
+| Value            | Meaning                                                          |
+| ---------------- | ---------------------------------------------------------------- |
+| `follow`         | Authorized by the alias name itself; change is invisible to this holder |
+| `potential`      | Authorized through target selectors that intersect the change; may gain or lose access |
+| `unrestricted`   | No model allowlist; the alias is always available to this holder |
+| (omitted)        | Holder that the change does not reach — not listed               |
+
+**Error codes:**
+
+| Code | Description                                                        |
+| ---- | ------------------------------------------------------------------ |
+| `400`| Missing or invalid `source`, or malformed `new_targets`            |
+| `404`| Virtual model not found                                            |
+| `503`| Feature unavailable                                                |
+
 ## Admin Dashboard
 
 The dashboard is a server-rendered HTML page embedded in the GoModel binary. Access it at:

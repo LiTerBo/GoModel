@@ -122,7 +122,8 @@ listed without target metadata (`owned_by` empty), so the caller cannot infer
 the provider or the concrete model behind it. The dashboard pickers on the
 **API Keys** and **Users** pages list those names next to the provider
 wildcards and concrete models, and every allowlist field still accepts typed
-entries. Entries naming concrete targets
+entries. In the picker, each alias bears a **follows alias** badge; hovering
+it reveals the alias's current target models. Entries naming concrete targets
 keep their old meaning: for such a list a load balancer is still only usable
 when every target it can pick is allowed, and a node whose only entry is a
 virtual model name shows an empty effective list in the user tree.

@@ -229,6 +229,30 @@ Redirects that shadow a model can be edited the same way — use the model row's
 **Edit redirect** action. Virtual models declared as code keep their `source`
 fixed in configuration; rename them by editing the declaration.
 
+Deleting an alias that still has API keys or user paths authorized to reach it
+returns `409 Conflict` with an explanation of what references it. A **force
+delete** (`force: true` in the admin API or the corresponding dashboard action)
+bypasses the guard and removes the alias regardless of outstanding
+authorizations.
+
+## Lock an alias
+
+The redirect editor's **Lock** toggle prevents accidental target changes. When
+locked, saving a new pointing returns `409 Conflict` with a message explaining
+that the alias is locked. To change the target, unlock first — either uncheck
+the toggle, or use the **retarget-and-unlock** gesture that changes the
+pointing and unlocks in one action. The lock does not block deletion,
+description edits, or the enabled/disabled toggle.
+
+## Preview who this alias affects
+
+Before saving target changes, the editor shows who reaches this alias:
+- **Follow** — names authorized by name to reach this alias.
+- **Potential** — names authorized by a shared selector (user path) — they
+  match the alias and *may* be affected.
+
+Both lists come from the `authorized-by` endpoint.
+
 ## Define virtual models as code
 
 Operators who manage configuration as infrastructure-as-code can declare virtual
