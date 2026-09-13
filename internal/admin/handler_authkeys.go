@@ -209,36 +209,32 @@ func (h *Handler) updateAuthKey(c *echo.Context, req any, update func(ctx contex
 
 // DeactivateAuthKey handles POST /admin/auth-keys/:id/deactivate
 func (h *Handler) DeactivateAuthKey(c *echo.Context) error {
-	var unavailableErr error
-	var deactivate func(context.Context, string) error
-	if h.authKeys == nil {
-		unavailableErr = featureUnavailableError("auth keys feature is unavailable")
-	} else {
-		deactivate = func(ctx context.Context, id string) error {
-			if err := h.requireAuthKeyInScope(c, id); err != nil {
-				return err
-			}
-			return h.authKeys.Deactivate(ctx, id)
-		}
-	}
-	return deactivateByID(c, unavailableErr, "auth key", authkeys.ErrNotFound, "auth key not found: ", deactivate, authKeyWriteError)
+	return h.mutateAuthKeyByID(c, (*authkeys.Service).Deactivate)
 }
 
 // DeleteAuthKey handles DELETE /admin/auth-keys/:id
 func (h *Handler) DeleteAuthKey(c *echo.Context) error {
-	var unavailableErr error
-	var deleteFn func(context.Context, string) error
-	if h.authKeys == nil {
-		unavailableErr = featureUnavailableError("auth keys feature is unavailable")
-	} else {
-		deleteFn = func(ctx context.Context, id string) error {
+	return h.mutateAuthKeyByID(c, (*authkeys.Service).Delete)
+}
+
+// mutateAuthKeyByID runs one auth-key mutation behind the two guards both
+// removal handlers need: the feature must be configured, and the key must sit
+// inside the caller's scope before the mutation runs. The mutation arrives as
+// a method expression so the service is only dereferenced once it is known to
+// be present.
+func (h *Handler) mutateAuthKeyByID(c *echo.Context, mutate func(*authkeys.Service, context.Context, string) error) error {
+	unavailableErr := featureUnavailableError("auth keys feature is unavailable")
+	var run func(context.Context, string) error
+	if h.authKeys != nil {
+		unavailableErr = nil
+		run = func(ctx context.Context, id string) error {
 			if err := h.requireAuthKeyInScope(c, id); err != nil {
 				return err
 			}
-			return h.authKeys.Delete(ctx, id)
+			return mutate(h.authKeys, ctx, id)
 		}
 	}
-	return deactivateByID(c, unavailableErr, "auth key", authkeys.ErrNotFound, "auth key not found: ", deleteFn, authKeyWriteError)
+	return deactivateByID(c, unavailableErr, "auth key", authkeys.ErrNotFound, "auth key not found: ", run, authKeyWriteError)
 }
 
 // requireAuthKeyInScope hides keys bound outside the caller's scope behind

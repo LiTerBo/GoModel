@@ -214,27 +214,7 @@ func (h *Handler) confirmCapabilities(c *echo.Context, provider, model string, c
 // @Failure      503  {object}  core.GatewayError
 // @Router       /admin/models/capabilities [put]
 func (h *Handler) ConfirmModelCapabilities(c *echo.Context) error {
-	if h.modelTest == nil {
-		return handleError(c, featureUnavailableError("model test feature is unavailable"))
-	}
-	var req confirmCapabilityRequest
-	if err := c.Bind(&req); err != nil {
-		return handleError(c, core.NewInvalidRequestError("invalid request body: "+err.Error(), err))
-	}
-	req.Provider = strings.TrimSpace(req.Provider)
-	req.Model = strings.TrimSpace(req.Model)
-	if req.Provider == "" || req.Model == "" || len(req.Caps) == 0 {
-		return handleError(c, core.NewInvalidRequestError("provider, model and capabilities are required", nil))
-	}
-	for key := range req.Caps {
-		if strings.TrimSpace(key) == "" {
-			return handleError(c, core.NewInvalidRequestError("capability keys must be non-empty", nil))
-		}
-	}
-	if err := h.confirmCapabilities(c, req.Provider, req.Model, req.Caps, core.CapSrcTest); err != nil {
-		return handleError(c, err)
-	}
-	return c.JSON(http.StatusOK, req.Caps)
+	return h.confirmCapabilitiesRequest(c, core.CapSrcTest)
 }
 
 // ConfirmObservedCapabilities handles PUT /admin/models/observed-capabilities:
@@ -256,6 +236,13 @@ func (h *Handler) ConfirmModelCapabilities(c *echo.Context) error {
 // @Failure      503  {object}  core.GatewayError
 // @Router       /admin/models/observed-capabilities [put]
 func (h *Handler) ConfirmObservedCapabilities(c *echo.Context) error {
+	return h.confirmCapabilitiesRequest(c, core.CapSrcObserved)
+}
+
+// confirmCapabilitiesRequest validates one operator confirmation payload and
+// persists it under the given provenance source: a probe confirmation and an
+// observed-capability confirmation differ only in that source.
+func (h *Handler) confirmCapabilitiesRequest(c *echo.Context, source string) error {
 	if h.modelTest == nil {
 		return handleError(c, featureUnavailableError("model test feature is unavailable"))
 	}
@@ -273,7 +260,7 @@ func (h *Handler) ConfirmObservedCapabilities(c *echo.Context) error {
 			return handleError(c, core.NewInvalidRequestError("capability keys must be non-empty", nil))
 		}
 	}
-	if err := h.confirmCapabilities(c, req.Provider, req.Model, req.Caps, core.CapSrcObserved); err != nil {
+	if err := h.confirmCapabilities(c, req.Provider, req.Model, req.Caps, source); err != nil {
 		return handleError(c, err)
 	}
 	return c.JSON(http.StatusOK, req.Caps)
