@@ -130,12 +130,12 @@
 
 ## 4. 任务清单
 
-- [ ] T13-A 影响面纯函数（`internal/admin/impact.go`）：表驱动单测（名字命中 / 目标级命中 / scope 排除 / old=new 盘点 / 空 grants）
-- [ ] T13-B 端点 `GET /admin/virtual-models/authorized-by`：400/404/200 边界 + `new_targets` 预览参数
-- [ ] T13-C `locked` 列 + 迁移 + Store 双实现 + Upsert 守卫（locked 且未解锁 → 409）；迁移+双写测试
-- [ ] T13-D 删除守卫：无 `force` 且存在按名授权引用 → 409 + 影响清单；`force=true` → 204
-- [ ] T13-E 管理事件（D6 裁定后落地）+ 写入断言
-- [ ] T13-F 前端：编辑器预览块 + 锁定开关 + `SearchSelect` 标注钩子（跟随标记/悬停指向）+ i18n 双语 + dashboard 测试
+- [x] **T13-A** 影响面纯函数（`internal/admin/impact.go`）：表驱动单测（名字命中 / 目标级命中 / scope 排除 / old=new 盘点 / 空 grants）
+- [x] **T13-B** 端点 `GET /admin/virtual-models/authorized-by`：400/404/200 边界 + `new_targets` 预览参数
+- [x] **T13-C** `locked` 列 + 迁移 + Store 双实现 + Upsert 守卫（locked 且未解锁 → 409）；迁移+双写测试
+- [x] **T13-D** 删除守卫：无 `force` 且存在按名授权引用 → 409 + 影响清单；`force=true` → 204
+- [x] **T13-E** 管理事件（D6 裁定后落地）+ 写入断言
+- [x] **T13-F** 前端：编辑器预览块 + 锁定开关 + `SearchSelect` 标注钩子（跟随标记/悬停指向）+ i18n 双语 + dashboard 测试
 - [x] **T13-G** 文档同步：`docs/advanced/admin-endpoints.mdx`（新端点/新参数）、`docs/features/users.mdx`（跟随语义与标记）、`docs/features/virtual-models.mdx`（锁定/预览/删除守卫）、本文件勾选
 - [x] **T13-H** 端到端实测：`go test -tags=e2e -run TestAliasCRUD_E2E` 通过 7 步全链（创建/列表/authorized-by/锁定/解锁改指向/删除/验证已删）
 
