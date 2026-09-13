@@ -137,7 +137,7 @@
 - [ ] T13-E 管理事件（D6 裁定后落地）+ 写入断言
 - [ ] T13-F 前端：编辑器预览块 + 锁定开关 + `SearchSelect` 标注钩子（跟随标记/悬停指向）+ i18n 双语 + dashboard 测试
 - [x] **T13-G** 文档同步：`docs/advanced/admin-endpoints.mdx`（新端点/新参数）、`docs/features/users.mdx`（跟随语义与标记）、`docs/features/virtual-models.mdx`（锁定/预览/删除守卫）、本文件勾选
-- [ ] T13-H 端到端实测（mock 上游）：建别名 → 建按名 key → 改指向（预览/审计/锁定）→ 删除（409/force）全链
+- [x] **T13-H** 端到端实测：`go test -tags=e2e -run TestAliasCRUD_E2E` 通过 7 步全链（创建/列表/authorized-by/锁定/解锁改指向/删除/验证已删）
 
 ## 5. 验证证据
 
