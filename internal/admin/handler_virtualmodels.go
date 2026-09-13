@@ -36,7 +36,7 @@ type upsertVirtualModelRequest struct {
 	SessionAffinity *bool `json:"session_affinity,omitempty"`
 	// Failover retries a failed request on the remaining targets. Omitted
 	// means enabled; false serves the chosen target only.
-	Failover    *bool    `json:"failover,omitempty"`
+	Failover  *bool    `json:"failover,omitempty"`
 	UserPaths []string `json:"user_paths,omitempty"`
 	// Description is a pointer so a write that only touches other fields keeps
 	// the stored one: the editor sends the whole row, an API caller flipping

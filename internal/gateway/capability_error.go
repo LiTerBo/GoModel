@@ -36,7 +36,7 @@ func DetectCapabilityError(caps map[string]bool, modes []string, required []stri
 		return CapabilityErrorType
 	}
 	for _, capName := range required {
-		if capName == "vision" && caps != nil && caps["vision"] == false {
+		if capName == "vision" && caps != nil && !caps["vision"] {
 			return CapabilityErrorCapability
 		}
 	}

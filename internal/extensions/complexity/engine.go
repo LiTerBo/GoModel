@@ -137,19 +137,6 @@ func tierIndex(tier string) int {
 	return 0
 }
 
-func tierAt(i int) string {
-	switch i {
-	case 0:
-		return TierSimple
-	case 1:
-		return TierMedium
-	case 2:
-		return TierComplex
-	default:
-		return TierVeryComplex
-	}
-}
-
 func matchPreferred(pool []ext.RouteCandidate, preferred []string) string {
 	for _, want := range preferred {
 		for _, c := range pool {

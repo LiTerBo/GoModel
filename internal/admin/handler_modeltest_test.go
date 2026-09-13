@@ -15,11 +15,10 @@ import (
 
 // stubModelTest is a fully scripted ModelTestAdmin.
 type stubModelTest struct {
-	probeResults []modeltest.Result
-	probeErr     bool
-	merged       bool
-	mergeCaps    map[string]bool
-	mergeSource  string
+	probeErr    bool
+	merged      bool
+	mergeCaps   map[string]bool
+	mergeSource string
 }
 
 func (s *stubModelTest) Probe(provider, model string, probes []modeltest.Probe) []modeltest.Result {
