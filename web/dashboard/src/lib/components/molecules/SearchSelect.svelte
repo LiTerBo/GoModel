@@ -46,6 +46,7 @@
     disabled = false,
     mono = false,
     class: className = "",
+    annotate = undefined,
   } = $props();
 
   const uid = $props.id();
@@ -348,6 +349,12 @@
             {#if option.description}
               <span class="search-select-option-description">{option.description}</span>
             {/if}
+            {#if annotate}
+              {@const note = annotate(option)}
+              {#if note}
+                <span class="search-select-option-note" title={note.title || note.text}>{note.text}</span>
+              {/if}
+            {/if}
             {#if isChosen(option.value)}
               <Icon icon={Check} class="search-select-check" />
             {/if}
@@ -577,6 +584,16 @@
     font-family: inherit;
     font-size: 11px;
     white-space: nowrap;
+  }
+
+  .search-select-option-note {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--accent);
+    color: var(--accent-foreground);
+    white-space: nowrap;
+    cursor: help;
   }
 
   .search-select :global(.search-select-check) {

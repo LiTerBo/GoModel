@@ -6,12 +6,15 @@
   import { modelsStore } from "$lib/stores/models.svelte.js";
   import { virtualModels } from "$pages/models/virtualModels.svelte.js";
   import { authKeysStore as store } from "./authKeys.svelte.js";
-  import { authKeySelectorOptions } from "./authKeysLogic.js";
+  import { authKeySelectorOptions, buildAliasAnnotate } from "./authKeysLogic.js";
   import * as m from "$lib/paraglide/messages.js";
 
   // Same picker as the create dialog, including the virtual models by name.
   const selectorOptions = $derived(
     authKeySelectorOptions(modelsStore.models, virtualModels.aliases),
+  );
+  const optionAnnotate = $derived(
+    buildAliasAnnotate(virtualModels.aliases),
   );
   $effect(() => {
     if (store.allowedModelsEditor.open) {
@@ -48,6 +51,7 @@
         ariaLabel={m.api_keys_allowed_models_field()}
         allowCustom
         mono
+        annotate={optionAnnotate}
       />
     </div>
     <p class="form-hint">

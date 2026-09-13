@@ -3,7 +3,7 @@
 // list itself (rows, toggles, deletes) lives in virtualModels.svelte.js; the
 // editor reads its aliases and refreshes it after a save.
 
-import { errorMessage, sendJSON } from "$lib/api/client.js";
+import { errorMessage, getJSON, sendJSON } from "$lib/api/client.js";
 import { flash } from "$lib/stores/flash.svelte.js";
 import * as m from "$lib/paraglide/messages.js";
 import { modelsStore } from "$lib/stores/models.svelte.js";
@@ -27,15 +27,26 @@ import {
 import {
   aliasFormTargets,
   buildVirtualModelSavePayload,
+  buildImpactPreviewTargets,
   defaultVirtualModelForm,
   moveFormTarget,
   normalizeUserPaths,
   removePrimaryTarget as removePrimaryTargetPure,
   virtualModelTargetOptions,
+  vmFormIsRedirect,
   vmFormPopulatedTargetCount,
   vmFormTargetCount,
   vmRoutingSummary,
 } from "./vmForm.js";
+import {
+  applyLockFields,
+} from "./vmForm.js";
+import {
+  deleteBlockedMessage,
+  groupImpactGrants,
+  parseAuthorizedByResponse,
+  shouldPreviewImpact,
+} from "./vmImpactPreview.js";
 import { virtualModels } from "./virtualModels.svelte.js";
 
 class VirtualModelEditorStore {
@@ -63,6 +74,116 @@ class VirtualModelEditorStore {
   // Set to the moved row's new index after a keyboard move so focus follows;
   // VmTargetRow focuses the handle and clears it.
   vmFocusHandle = $state(null);
+  // Alias-evolution guardrails (T13-F): the impact preview block and the
+  // pointing lock. The preview loads on open and refreshes whenever the form's
+  // pointing changes; impact holds the parsed authorized-by response.
+  vmImpact = $state(null);
+  vmImpactLoading = $state(false);
+  vmImpactError = $state(false);
+  vmImpactRequestedKey = $state("");
+  vmFormLocked = $state(false);
+  vmFormUnlockRequested = $state(false);
+  // Set while the delete force-confirm dialog from a 409 is on screen.
+  vmDeleteForcePending = $state(false);
+
+  // vmImpactGroups buckets the loaded grants for the preview template. Empty
+  // while nothing is loaded.
+  vmImpactGroups() {
+    if (!this.vmImpact) {
+      return {};
+    }
+    return groupImpactGrants(this.vmImpact.grants);
+  }
+
+  // vmImpactWanted reports whether the open form should show the preview
+  // block at all: only redirects have a pointing to preview.
+  vmImpactWanted() {
+    return shouldPreviewImpact({
+      mode: this.vmFormMode,
+      isRedirect: vmFormIsRedirect(this.vmForm),
+      source: this.vmForm.source,
+    });
+  }
+
+  // vmImpactTargetsKey fingerprints the form's pointing so the preview
+  // refreshes whenever targets or strategy change and stays put otherwise.
+  vmImpactTargetsKey() {
+    const source = String(this.vmForm.source || "").trim();
+    return [
+      source,
+      this.vmFormMode,
+      JSON.stringify(buildImpactPreviewTargets(this.vmFormPendingPayload())),
+    ].join("|");
+  }
+
+  vmFormPendingPayload() {
+    return buildVirtualModelSavePayload(
+      this.vmForm,
+      this.vmFormOriginalSource,
+      this.vmFormMode,
+    ).payload;
+  }
+
+  // refreshVmImpact re-queries authorized-by for the form's current pointing.
+  // Empty source (create before typing) and policy rows never reach it; the
+  // payload omits new_targets when the form carries no pointing yet so the
+  // backend previews its own current definition.
+  async refreshVmImpact() {
+    const source = String(this.vmForm.source || "").trim();
+    if (!source || !this.vmImpactWanted()) {
+      this.vmImpact = null;
+      return;
+    }
+    const key = this.vmImpactTargetsKey();
+    this.vmImpactRequestedKey = key;
+    this.vmImpactLoading = true;
+    this.vmImpactError = false;
+    try {
+      const targets = buildImpactPreviewTargets(this.vmFormPendingPayload());
+      const params = new URLSearchParams({ source });
+      if (targets.length > 0) {
+        params.set("new_targets", targets.join(","));
+      }
+      const result = await getJSON(
+        "/admin/virtual-models/authorized-by?" + params.toString(),
+        { label: "impact preview" },
+      );
+      if (!result.ok || result.stale) {
+        this.vmImpact = null;
+        return;
+      }
+      // A newer keystroke already moved on; drop the stale answer.
+      if (this.vmImpactRequestedKey !== this.vmImpactTargetsKey()) {
+        return;
+      }
+      this.vmImpact = parseAuthorizedByResponse(result.data);
+    } catch {
+      this.vmImpact = null;
+      this.vmImpactError = true;
+    } finally {
+      if (this.vmImpactRequestedKey === key) {
+        this.vmImpactLoading = false;
+      }
+    }
+  }
+
+  // toggleVmFormUnlock flips the "retarget and unlock" gesture. It is only
+  // reachable while the stored row is locked; switching it on asks once.
+  async toggleVmFormUnlock() {
+    if (!this.vmFormLocked) {
+      return;
+    }
+    const next = !this.vmFormUnlockRequested;
+    if (next && !window.confirm(m.vm_lock_unlock_confirm())) {
+      return;
+    }
+    this.vmFormUnlockRequested = next;
+  }
+
+  // vmFormLockLabel mirrors the EnabledToggle text convention.
+  vmFormLockLabel() {
+    return this.vmFormLocked ? m.vm_lock_toggle_locked() : m.vm_lock_toggle_unlocked();
+  }
 
   addVmTarget() {
     if (!Array.isArray(this.vmForm.targets)) {
@@ -244,6 +365,14 @@ class VirtualModelEditorStore {
     this.vmDragIndex = null;
     this.vmDropIndex = null;
     this.vmFocusHandle = null;
+    // Guardrail state must not leak either: the lock gesture and the preview.
+    this.vmImpact = null;
+    this.vmImpactLoading = false;
+    this.vmImpactError = false;
+    this.vmImpactRequestedKey = "";
+    this.vmFormLocked = false;
+    this.vmFormUnlockRequested = false;
+    this.vmDeleteForcePending = false;
     this.vmForm = defaultVirtualModelForm();
   }
 
@@ -307,7 +436,11 @@ class VirtualModelEditorStore {
       description: alias.description || "",
       slowdown: alias.slowdown ?? "",
       enabled: alias.enabled !== false,
+      locked: alias.locked === true,
+      unlockRequested: false,
     };
+    this.vmFormLocked = alias.locked === true;
+    this.vmFormUnlockRequested = false;
   }
 
   // openVirtualModelEditModel edits the virtual model attached to a real
@@ -507,6 +640,48 @@ class VirtualModelEditorStore {
       }
     }
 
+    // Lock guard: a locked alias whose pointing changed needs explicit unlock.
+    if (
+      this.vmFormLocked &&
+      isRedirect &&
+      this.vmForm.locked &&
+      !this.vmForm.unlockRequested
+    ) {
+      const pTargets = buildImpactPreviewTargets(built.payload);
+      // Pointing changed when the saved targets differ from the original alias.
+      // For simplicity, compare the first target or any change, using the
+      // original alias from the virtualModels cache.
+      const originalAlias = (virtualModels.aliases || []).find(
+        (a) => a.name === this.vmFormOriginalSource,
+      );
+      if (originalAlias) {
+        const oTargets = buildImpactPreviewTargets(
+          buildVirtualModelSavePayload(
+            {
+              source: originalAlias.name,
+              target_provider: "",
+              target_model: (originalAlias.targets || [])[0]?.model || "",
+              targets: (originalAlias.targets || []).slice(1).map((t) => ({
+                provider: "",
+                model: t.model,
+                weight: t.weight || 1,
+              })),
+              strategy: originalAlias.strategy || "round_robin",
+            },
+            "",
+            "edit",
+          ).payload,
+        );
+        if (pTargets.join(",") !== oTargets.join(",")) {
+          this.vmFormError = m.vm_lock_change_blocked();
+          return;
+        }
+      }
+    }
+
+    // Lock fields: include or omit the lock gesture.
+    applyLockFields(payload, this.vmForm, this.vmFormLocked);
+
     this.vmSubmitting = true;
 
     try {
@@ -577,7 +752,7 @@ class VirtualModelEditorStore {
       const result = await sendJSON(
         "/admin/virtual-models",
         "DELETE",
-        { source },
+        this.vmDeleteForcePending ? { source, force: true } : { source },
         {
           label: "virtual model",
         },
@@ -585,6 +760,17 @@ class VirtualModelEditorStore {
       if (result.status === 503) {
         virtualModels.virtualModelsAvailable = false;
         this.vmFormError = m.models_unavailable();
+        return;
+      }
+      if (result.status === 409 && !this.vmDeleteForcePending) {
+        const msg = deleteBlockedMessage(result.body?.message || "");
+        if (window.confirm(msg)) {
+          this.vmDeleteForcePending = true;
+          this.vmDeleting = false;
+          this.vmFormError = "";
+          return this.deleteVirtualModel();
+        }
+        this.vmFormError = m.models_remove_failed();
         return;
       }
       if (result.status !== 404) {

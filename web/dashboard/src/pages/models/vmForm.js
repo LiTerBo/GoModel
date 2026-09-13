@@ -76,7 +76,114 @@ export function defaultVirtualModelForm() {
     description: "",
     slowdown: "",
     enabled: true,
+    // The alias-evolution lock (T13): true only while the stored row is
+    // locked; the form does not invent a value for new rows.
+    locked: false,
+    // Set when the operator asks to retarget a locked row; the save carries
+    // unlock=true so the backend lifts the guard for this write only.
+    unlockRequested: false,
   };
+}
+
+// buildImpactPreviewTargets lists the qualified targets a save payload would
+// point at, mirroring buildVirtualModelSavePayload's shape decision: a load
+// balancer carries the targets array, a plain alias falls back to
+// target_model. The impact preview sends this as new_targets.
+export function buildImpactPreviewTargets(payload) {
+  if (!payload) {
+    return [];
+  }
+  const targets = Array.isArray(payload.targets) ? payload.targets : [];
+  const names = targets
+    .map((target) => {
+      const provider = String((target && target.provider) || "").trim();
+      const model = String((target && target.model) || "").trim();
+      if (!model) return "";
+      return provider ? provider + "/" + model : model;
+    })
+    .filter(Boolean);
+  if (names.length > 0) {
+    return names;
+  }
+  const plain = String(payload.target_model || "").trim();
+  return plain ? [plain] : [];
+}
+
+// lockedSubmitGesture turns the form's lock state into the payload fields the
+// backend guard understands (D11): the lock is preserved by omission — a
+// request that does not mention it keeps the stored value — while an explicit
+// unlock travels as unlock=true (retarget-and-unlock), and switching the lock
+// off travels as locked=false. locked=true is never sent: the flag exists so
+// the toggle can show the stored state, and re-locking through an unrelated
+// edit would be a surprise.
+export function applyLockFields(payload, form, originalLocked) {
+  if (!form) {
+    return payload;
+  }
+  if (form.unlockRequested) {
+    payload.unlock = true;
+  } else if (originalLocked !== undefined) {
+    if (form.locked === false && originalLocked) {
+      payload.locked = false;
+    } else if (form.locked === true && !originalLocked) {
+      payload.locked = true;
+    }
+  } else if (form.locked === false) {
+    // Fallback for callers without the stored state: the toggle off is
+    // unambiguous, but turning it on without knowing the stored value is
+    // skipped — the caller must pass originalLocked for that.
+    payload.locked = false;
+  }
+  return payload;
+}
+
+// aliasBadge reports the "follows alias" marker for an allowed-models picker
+// value, or null when the value is not a known alias. An empty alias list
+// (lazy load has not landed yet) degrades to no badge — never blocks input.
+export function aliasBadge(value, aliases) {
+  return findAlias(value, aliases) ? { follows: true } : null;
+}
+
+// aliasHoverTitle builds the tooltip showing where an alias currently points.
+// Non-aliases and unloaded lists yield "" so no tooltip renders.
+export function aliasHoverTitle(value, aliases) {
+  const alias = findAlias(value, aliases);
+  if (!alias) {
+    return "";
+  }
+  const names = (Array.isArray(alias.targets) ? alias.targets : [])
+    .map((target) => {
+      const provider = String((target && target.provider) || "").trim();
+      const model = String((target && target.model) || "").trim();
+      if (!model) return "";
+      return provider ? provider + "/" + model : model;
+    })
+    .filter(Boolean);
+  if (names.length === 0) {
+    return "";
+  }
+  return m.vm_alias_follows_title({
+    name: String(alias.name || value),
+    targets: names.join(", "),
+  });
+}
+
+function findAlias(value, aliases) {
+  const wanted = String(value || "").trim().toLowerCase();
+  if (!wanted) return null;
+  for (const alias of Array.isArray(aliases) ? aliases : []) {
+    if (!alias) continue;
+    const name = String(alias.name || "").trim().toLowerCase();
+    if (name && name === wanted && alias.enabled !== false && alias.valid !== false) {
+      return alias;
+    }
+  }
+  return null;
+}
+
+// lockToggleHelp is the copy under the editor's lock toggle.
+export function lockToggleHelp() {
+  return m.vm_lock_help();
 }
 
 // vmFormPluginStrategy reports whether the form routes through a plugin.

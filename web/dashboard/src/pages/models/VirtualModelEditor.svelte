@@ -19,6 +19,7 @@
   import VmTargetRow from "./VmTargetRow.svelte";
   import { Plus, Save } from "lucide";
   import * as m from "$lib/paraglide/messages.js";
+  import { impactPreviewLine } from "./vmImpactPreview.js";
 
   const vm = virtualModelEditor;
 
@@ -37,6 +38,15 @@
     if (vm.vmFormOpen) {
       runtimeConfig.ensureLoaded();
       pluginsStore.ensureLoaded();
+    }
+  });
+
+  // Refresh the impact preview when the form's pointing changes.
+  $effect(() => {
+    if (vm.vmFormOpen && vm.vmImpactWanted()) {
+      // Tracking read: the keyer reads reactive form state.
+      vm.vmImpactTargetsKey();
+      vm.refreshVmImpact();
     }
   });
 </script>
@@ -129,6 +139,30 @@
     <p class="form-hint vm-routing-summary" class:vm-routing-replaces={summary.replaces} role="status">
       {summary.text}
     </p>
+  {/if}
+
+  {#if vm.vmImpactWanted()}
+    <div class="form-hint vm-impact-preview" role="status">
+      <span class="vm-impact-label">{m.vm_impact_preview_label()}</span>
+      {#if vm.vmImpactLoading}
+        <span class="vm-impact-loading">{m.vm_impact_preview_loading()}</span>
+      {:else if vm.vmImpactError}
+        <span class="vm-impact-error">{m.vm_impact_preview_error()}</span>
+      {:else if vm.vmImpact}
+        {@const groups = vm.vmImpactGroups()}
+        {#if groups.follow?.length}
+          <span class="vm-impact-line follow">{groups.follow.length} {impactPreviewLine("follow")}</span>
+        {/if}
+        {#if groups.potential?.length}
+          <span class="vm-impact-line potential">{groups.potential.length} {impactPreviewLine("potential")}</span>
+        {/if}
+        {#if !groups.follow?.length && !groups.potential?.length && groups.unrestricted?.length}
+          <span class="vm-impact-line unrestricted">{groups.unrestricted.length} {impactPreviewLine("unrestricted")}</span>
+        {/if}
+      {:else}
+        <span class="vm-impact-empty">{m.vm_impact_preview_none()}</span>
+      {/if}
+    </div>
   {/if}
 
   <div class="form-field">
@@ -271,6 +305,20 @@
       />
     </div>
   </div>
+
+  {#if vmFormShowBalancingOptions(vm.vmForm)}
+    <div class="form-field">
+      <label class="vm-option-checkbox">
+        <input
+          type="checkbox"
+          bind:checked={vm.vmForm.locked}
+          disabled={vm.vmFormManaged}
+        />
+        <span>{m.vm_lock_label()}</span>
+      </label>
+      <p class="form-hint">{m.vm_lock_help()}</p>
+    </div>
+  {/if}
 
   {#snippet extraActions()}
     {#if vm.vmFormHasExisting && !vm.vmFormManaged}

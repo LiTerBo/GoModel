@@ -32,6 +32,29 @@ export function authKeySelectorOptions(models, aliases) {
   });
 }
 
+// buildAliasAnnotate returns an annotate function for SearchSelect's prop that
+// marks virtual-model options with a "follows alias" badge and hover title.
+// Returns null when no aliases are loaded (degrades gracefully).
+export function buildAliasAnnotate(aliases) {
+  if (!aliases || !Array.isArray(aliases)) {
+    return undefined;
+  }
+  return (option) => {
+    const alias = aliases.find((a) => a.name === option.value);
+    if (!alias) return null;
+    const targets = (alias.targets || [])
+      .map((t) => t.model)
+      .filter(Boolean)
+      .join(", ");
+    return {
+      text: m.vm_alias_follows_badge(),
+      title: targets
+        ? m.vm_alias_follows_title({ name: alias.name, targets })
+        : undefined,
+    };
+  };
+}
+
 // parseAuthKeyLabels splits a comma-separated label string into a trimmed,
 // de-duplicated list (order preserved).
 export function parseAuthKeyLabels(value) {
